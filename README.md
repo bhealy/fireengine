@@ -28,4 +28,8 @@ node report.js [date_range] [db_password] [model]
 
 ## Output
 
-The report is saved to a text file named `daily-report-YYYY-MM-DD.txt` in the project directory. 
+The report is saved to a text file named `daily-report-YYYY-MM-DD.txt` in the project directory.
+
+## Style-guide
+
+This project follows standard JavaScript style guidelines.
