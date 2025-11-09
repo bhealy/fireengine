@@ -126,15 +126,21 @@ export async function placeHouses(scene, roads, options = {}) {
 	];
 	const houseCache = new Map(); // url -> TransformNode (source)
 	async function instantiateHouse(url, position, scale = 1) {
-		let src = houseCache.get(url);
-		if (!src) {
+		function splitUrl(u) {
+			let p = u;
+			if (p.startsWith("/")) p = p.slice(1);
+			const idx = p.lastIndexOf("/");
+			if (idx >= 0) {
+				return { rootUrl: "/" + p.slice(0, idx + 1), fileName: p.slice(idx + 1) };
+			}
+			return { rootUrl: "/", fileName: p };
+		}
+		let container = houseCache.get(url);
+		if (!container) {
 			try {
-				const res = await BABYLON.SceneLoader.ImportMeshAsync("", "/", url, scene);
-				src = new BABYLON.TransformNode(`src_${url}`, scene);
-				res.meshes.forEach(m => {
-					if (m && m !== scene.getMeshByName("ground")) m.parent = src;
-				});
-				houseCache.set(url, src);
+				const parts = splitUrl(url);
+				container = await BABYLON.SceneLoader.LoadAssetContainerAsync(parts.rootUrl, parts.fileName, scene);
+				houseCache.set(url, container);
 			} catch (e) {
 				console.error("Failed to load house model:", url, e);
 				// Fallback box
@@ -143,10 +149,13 @@ export async function placeHouses(scene, roads, options = {}) {
 				return box;
 			}
 		}
-		const clone = src.clone(`house_${Math.random().toString(36).slice(2)}`);
-		clone.position.copyFrom(position);
-		clone.scaling.setAll(scale);
-		return clone;
+		const inst = container.instantiateModelsToScene(name => `${name}_${Math.random().toString(36).slice(2)}`);
+		const root = new BABYLON.TransformNode(`house_${Math.random().toString(36).slice(2)}`, scene);
+		// Parent instantiated root nodes to our control root
+		inst.rootNodes.forEach(n => { n.parent = root; });
+		root.position.copyFrom(position);
+		root.scaling.setAll(scale);
+		return root;
 	}
 	
 	// Materials for large apartment buildings
