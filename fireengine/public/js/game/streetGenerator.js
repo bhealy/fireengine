@@ -127,7 +127,9 @@ export function placeHouses(scene, roads, options = {}) {
 		// "./dae_final_assignment_milestone_house.glb",
 		// "./house (1).glb"
 	];
-	const houseCache = new Map(); // url -> TransformNode (source)
+	const houseCache = new Map(); // url -> { container, boundingSize }
+	const TARGET_HOUSE_SIZE = 8; // Target bounding box size for normalization
+	
 	async function instantiateHouse(url, position, scale = 1) {
 		function splitUrl(u) {
 			let p = u;
@@ -140,16 +142,55 @@ export function placeHouses(scene, roads, options = {}) {
 			}
 			return { rootUrl: "./", fileName: p };
 		}
-		let container = houseCache.get(url);
-		if (!container) {
+		let cacheEntry = houseCache.get(url);
+		if (!cacheEntry) {
 			try {
 				const tLoad = performance.now();
 				const parts = splitUrl(url);
 				console.log(`      🔽 Downloading ${parts.fileName}...`);
-				container = await BABYLON.SceneLoader.LoadAssetContainerAsync(parts.rootUrl, parts.fileName, scene);
-				houseCache.set(url, container);
+				const container = await BABYLON.SceneLoader.LoadAssetContainerAsync(parts.rootUrl, parts.fileName, scene);
+				
+				// Calculate bounding size for normalization
+				const tempInst = container.instantiateModelsToScene();
+				const allMeshes = tempInst.rootNodes.flatMap(n => n.getChildMeshes());
+				let minVec = new BABYLON.Vector3(Infinity, Infinity, Infinity);
+				let maxVec = new BABYLON.Vector3(-Infinity, -Infinity, -Infinity);
+				allMeshes.forEach(m => {
+					if (m.getBoundingInfo) {
+						const bounds = m.getBoundingInfo().boundingBox;
+						minVec = BABYLON.Vector3.Minimize(minVec, bounds.minimumWorld);
+						maxVec = BABYLON.Vector3.Maximize(maxVec, bounds.maximumWorld);
+					}
+				});
+				const size = maxVec.subtract(minVec);
+				const maxDimension = Math.max(size.x, size.y, size.z);
+				
+				// Simplify high-poly meshes for performance
+				let totalVerts = 0;
+				allMeshes.forEach(m => {
+					if (m.getTotalVertices) totalVerts += m.getTotalVertices();
+					// If mesh has >5000 vertices, reduce detail
+					if (m.getTotalVertices && m.getTotalVertices() > 5000) {
+						try {
+							m.simplify(
+								[{ quality: 0.5, distance: 100 }],
+								false,
+								BABYLON.SimplificationType.QUADRATIC,
+								() => console.log(`         🔻 Simplified ${m.name}`)
+							);
+						} catch (e) {
+							console.log(`         ⚠️  Could not simplify ${m.name}`);
+						}
+					}
+				});
+				
+				// Clean up temp instance
+				tempInst.rootNodes.forEach(n => n.dispose());
+				
+				cacheEntry = { container, boundingSize: maxDimension };
+				houseCache.set(url, cacheEntry);
 				const loadTime = (performance.now() - tLoad).toFixed(0);
-				console.log(`      ⏱️  Loaded ${parts.fileName} in ${loadTime}ms (cached for reuse)`);
+				console.log(`      ⏱️  Loaded ${parts.fileName} in ${loadTime}ms (size: ${maxDimension.toFixed(1)}, verts: ${totalVerts}, cached)`);
 			} catch (e) {
 				console.error("Failed to load house model:", url, e);
 				// Fallback box
@@ -160,12 +201,16 @@ export function placeHouses(scene, roads, options = {}) {
 		} else {
 			console.log(`      ♻️  Using cached ${url}`);
 		}
-		const inst = container.instantiateModelsToScene(name => `${name}_${Math.random().toString(36).slice(2)}`);
+		
+		const inst = cacheEntry.container.instantiateModelsToScene(name => `${name}_${Math.random().toString(36).slice(2)}`);
 		const root = new BABYLON.TransformNode(`house_${Math.random().toString(36).slice(2)}`, scene);
 		// Parent instantiated root nodes to our control root
 		inst.rootNodes.forEach(n => { n.parent = root; });
 		root.position.copyFrom(position);
-		root.scaling.setAll(scale);
+		
+		// Normalize size based on bounding box, then apply random variation scale
+		const normalizeScale = TARGET_HOUSE_SIZE / cacheEntry.boundingSize;
+		root.scaling.setAll(normalizeScale * scale);
 		return root;
 	}
 	
