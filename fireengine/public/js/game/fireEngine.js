@@ -2,9 +2,9 @@
 export async function createFireEngine(scene) {
 	const root = new BABYLON.TransformNode("fireEngineRoot", scene);
 
-	// Load the fire engine model
+	// Load the fire engine model (relative path for GitHub Pages)
 	try {
-		const result = await BABYLON.SceneLoader.ImportMeshAsync("", "/", "fire_engine.babylon", scene);
+		const result = await BABYLON.SceneLoader.ImportMeshAsync("", "./", "fire_engine.babylon", scene);
 		// Parent all loaded meshes to root
 		result.meshes.forEach(mesh => {
 			if (!mesh.parent) {
@@ -20,13 +20,13 @@ export async function createFireEngine(scene) {
 		fallback.parent = root;
 	}
 
-	// Load brake sound
-	const brakeSound = new Audio('/fast-car-braking-sound-effect-3-11000.mp3');
+	// Load brake sound (relative path for GitHub Pages)
+	const brakeSound = new Audio('./fast-car-braking-sound-effect-3-11000.mp3');
 	brakeSound.loop = false;
 	brakeSound.volume = 0.5;
 
-	// Load siren sound
-	const sirenSound = new Audio('/firetruck-78910.mp3');
+	// Load siren sound (relative path for GitHub Pages)
+	const sirenSound = new Audio('./firetruck-78910.mp3');
 	sirenSound.loop = true;
 	sirenSound.volume = 0.6;
 
