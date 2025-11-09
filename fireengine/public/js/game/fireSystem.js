@@ -24,14 +24,19 @@ export function createFireSystem(scene, houses, opts = {}) {
 	function scheduleNextFire() {
 		const delayMs = 8000 + Math.floor(Math.random() * 7000);
 		setTimeout(() => {
-			// Only select houses currently visible on screen, fallback to any normal if none visible
-			let candidates = houses.filter(h => h.state === "normal");
-			const cam = scene.activeCamera;
-			if (cam && candidates.length > 0) {
+		// Only select houses currently visible on screen, fallback to any normal if none visible
+		let candidates = houses.filter(h => h.state === "normal");
+		const cam = scene.activeCamera;
+		if (cam && candidates.length > 0 && typeof cam.getFrustumPlanes === 'function') {
+			try {
 				const frustum = cam.getFrustumPlanes();
 				const visible = candidates.filter(h => h.mesh && h.mesh.isInFrustum && h.mesh.isInFrustum(frustum));
 				if (visible.length > 0) candidates = visible;
+			} catch (err) {
+				// If frustum check fails, use all candidates
+				console.log('Frustum check skipped:', err.message);
 			}
+		}
 			if (candidates.length === 0) return scheduleNextFire();
 			const h = candidates[Math.floor(Math.random() * candidates.length)];
 			startFlame(h);
