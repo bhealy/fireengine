@@ -129,7 +129,7 @@ export function placeHouses(scene, roads, options = {}) {
 	];
 	const houseCache = new Map(); // url -> { container, boundingSize }
 	const loadingPromises = new Map(); // url -> Promise (prevent duplicate downloads)
-	const TARGET_HOUSE_SIZE = 8; // Target bounding box size for normalization
+	const TARGET_HOUSE_SIZE = 50; // Target bounding box size for normalization (50 units tall)
 	
 	async function instantiateHouse(url, position, scale = 1) {
 		function splitUrl(u) {
@@ -244,6 +244,32 @@ export function placeHouses(scene, roads, options = {}) {
 	aptRoofMat.diffuseColor = new BABYLON.Color3(0.25, 0.25, 0.28);
 	aptRoofMat.specularColor = new BABYLON.Color3(0.05, 0.05, 0.05);
 	
+	// Grass material for areas between roads
+	const grassMat = new BABYLON.StandardMaterial("grassMat", scene);
+	grassMat.diffuseColor = new BABYLON.Color3(0.15, 0.45, 0.15); // Green grass
+	grassMat.specularColor = new BABYLON.Color3(0.02, 0.02, 0.02);
+	
+	// Create grass planes between roads
+	for (const r of roads) {
+		const grassWidth = 40; // Width of grass strip on each side
+		for (let side = -1; side <= 1; side += 2) {
+			const grassOffset = side * (r.halfW + grassWidth / 2);
+			const grass = BABYLON.MeshBuilder.CreatePlane(`grass_${r.orientation}`, {
+				width: r.length,
+				height: grassWidth
+			}, scene);
+			grass.rotation.x = Math.PI / 2; // Lay flat
+			grass.rotation.y = r.angle;
+			grass.position.set(
+				r.center.x + (-grassOffset * r.sin),
+				0.01, // Slightly above ground to prevent z-fighting
+				r.center.z + (grassOffset * r.cos)
+			);
+			grass.material = grassMat;
+			grass.receiveShadows = true;
+		}
+	}
+	
 	// Place along each road; denser on minor roads, sparse on major
 	for (const r of roads) {
 		const perSide = r.isMajor ? 2 : 3;
@@ -252,7 +278,7 @@ export function placeHouses(scene, roads, options = {}) {
 				if (totalHouses >= maxHouses) break;
 				const t = (i + 1) / (perSide + 1);
 				const along = (t - 0.5) * r.length;
-				const away = s * (r.halfW + 8 + rng() * 10); // keep off-road with margin
+				const away = s * (r.halfW + 15 + rng() * 15); // Keep well off road on grass
 				
 				// Convert local (along, across) to world
 				const wx = r.center.x + (along * r.cos) + (-away * r.sin);
