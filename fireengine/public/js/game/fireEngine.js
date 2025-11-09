@@ -5,12 +5,12 @@ export async function createFireEngine(scene) {
 	// Load the fire engine model (relative path for GitHub Pages)
 	try {
 		const result = await BABYLON.SceneLoader.ImportMeshAsync("", "./", "fire_engine.babylon", scene);
-		// Parent all loaded meshes to root
-		result.meshes.forEach(mesh => {
-			if (!mesh.parent) {
-				mesh.parent = root;
-			}
-		});
+		// Ensure ALL top-level nodes (meshes AND transform nodes) are parented to our root.
+		// Some GLTF/Babylon models include a top-level TransformNode that owns all meshes;
+		// those meshes would already have a parent, so we must also re-parent transform nodes.
+		const topLevelMeshes = result.meshes.filter(m => !m.parent);
+		const topLevelTransforms = (result.transformNodes || []).filter(t => !t.parent);
+		[...topLevelMeshes, ...topLevelTransforms].forEach(n => { n.parent = root; });
 		console.log("Fire engine loaded:", result.meshes.length, "meshes");
 	} catch (err) {
 		console.error("Failed to load fire_engine.babylon:", err);
@@ -55,19 +55,29 @@ export async function createFireEngine(scene) {
 		const accel = 3.0; // Slower acceleration for smoother control
 		const brake = 9.0; // 3x faster braking
 		
-		// Turning causes active braking - the harder the turn, the more braking
-		// About half the forward acceleration speed (1.5 units/s²)
+		// Check if we're turning (steer threshold)
 		const steerAmount = Math.abs(motion.steer / motion.maxSteer); // 0 to 1
-		const turnBrake = steerAmount * 1.5; // Up to 1.5 units/s² braking when fully turning
+		const isTurning = steerAmount > 0.05; // More than 5% steer input
 		
-		// Apply turn braking to current speed
-		motion.speed = Math.max(0, motion.speed - turnBrake * dtSec);
-		
-		// Then handle regular acceleration/braking
-		const diff = motion.targetSpeed - motion.speed;
-		const rate = diff < 0 ? brake : accel;
-		const step = BABYLON.Scalar.Clamp(diff, -rate * dtSec, rate * dtSec);
-		motion.speed += step;
+		// If turning, no acceleration allowed - only maintain or reduce speed
+		if (isTurning) {
+			// Apply turn braking - the harder the turn, the more braking
+			const turnBrake = steerAmount * 2.0; // Up to 2 units/s² braking when fully turning
+			motion.speed = Math.max(0, motion.speed - turnBrake * dtSec);
+			
+			// Also apply regular braking if targetSpeed is lower
+			if (motion.targetSpeed < motion.speed) {
+				const diff = motion.targetSpeed - motion.speed;
+				const step = BABYLON.Scalar.Clamp(diff, -brake * dtSec, 0);
+				motion.speed += step;
+			}
+		} else {
+			// Not turning - normal acceleration/braking
+			const diff = motion.targetSpeed - motion.speed;
+			const rate = diff < 0 ? brake : accel;
+			const step = BABYLON.Scalar.Clamp(diff, -rate * dtSec, rate * dtSec);
+			motion.speed += step;
+		}
 		
 		// Detect braking (targetSpeed < currentSpeed) and play/stop brake sound
 		const isBrakingNow = (motion.targetSpeed < motion.speed - 1) && motion.speed > 5; // Only if moving
