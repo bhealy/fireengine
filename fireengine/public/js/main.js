@@ -52,8 +52,22 @@ async function startGame() {
 		const flames = createFlameManager(scene);
 		const fire = createFireSystem(scene, houses, {
 			onStart: (h) => flames.showOn(h),
-			onStop: () => flames.hide()
+			onStop: (h) => flames.hideHouse(h)
 		});
+		
+		// Start with 200 random buildings on fire
+		console.log("🔥 Starting 200 initial fires...");
+		const normalHouses = houses.filter(h => h.state === "normal");
+		const initialFireCount = Math.min(200, normalHouses.length);
+		for (let i = 0; i < initialFireCount; i++) {
+			const randomIdx = Math.floor(Math.random() * normalHouses.length);
+			const house = normalHouses.splice(randomIdx, 1)[0]; // Remove from array to avoid duplicates
+			if (house) {
+				fire.startFlame(house);
+			}
+		}
+		console.log(`   🔥 Started ${initialFireCount} fires`);
+		
 		fire.igniteRandomLater();
 		console.log(`   ⏱️  Fire system created in ${(performance.now() - t4).toFixed(0)}ms`);
 
@@ -84,12 +98,15 @@ async function startGame() {
 			scoreEl: document.getElementById("score"),
 			modeEl: document.getElementById("mode"),
 			msgEl: document.getElementById("messages"),
+			firesEl: document.getElementById("firesRemaining"),
 			setScore(v) { this.scoreEl.textContent = `Score: ${v}`; },
 			setMode(v) { this.modeEl.textContent = `Mode: ${v}`; },
+			setFires(v) { this.firesEl.textContent = `Fires: ${v}`; },
 			msg(t) { this.msgEl.textContent = t || ""; }
 		};
 		hud.setScore(0);
 		hud.setMode("Driving");
+		hud.setFires(flames.getCount());
 
 		// Click/touch: ignite the clicked building
 		function isDescendantOf(node, maybeAncestor) {
@@ -153,13 +170,24 @@ async function startGame() {
 				fe.motion.speed = minStartSpeed;
 			}
 			
-			fe.motion.targetSpeed = Math.max(0, Math.min(1, control.throttle)) * maxSpeed;
+			// Handle throttle: negative = active braking (target speed 0), positive = accelerate
+			if (control.throttle < 0) {
+				fe.motion.targetSpeed = 0; // Active braking - force target to 0
+			} else {
+				fe.motion.targetSpeed = Math.max(0, Math.min(1, control.throttle)) * maxSpeed;
+			}
 			fe.motion.steer = BABYLON.Scalar.Clamp(control.steer, -1, 1) * fe.motion.maxSteer;
 
 			fe.update(dt);
 			
 			// Update camera to follow behind fire engine
 			cam.updateChaseCam();
+			
+			// Update flames manager - create/destroy particle systems based on proximity
+			flames.update(fe.motion.position);
+			
+			// Update fire count in HUD
+			hud.setFires(flames.getCount());
 			
 			// Update speedometer needle (rotates from -90° at 0 mph to +90° at 50 mph)
 			const speed = Math.max(0, Math.min(50, fe.motion.speed));
@@ -245,9 +273,9 @@ async function startGame() {
 		await initHandTracking(video, {
 			onGesture: (g) => {
 				if (!g.present) {
-					// No hand = stop/brake (same as fist)
-					control.throttle = 0;
-					control.steer = 0;
+					// No hand = immediately stop turning and actively brake
+					control.throttle = -1; // Negative throttle for active braking
+					control.steer = 0;     // Stop turning immediately
 					handIconEl.textContent = "✊";
 					handLabelEl.textContent = "Stop (No hand)";
 					return;

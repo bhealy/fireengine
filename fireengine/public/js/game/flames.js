@@ -1,33 +1,43 @@
-// Flames manager: covers building with animated flame billboards
+// Flames manager: uses particle systems for animated flickering flames
+// Only creates particle systems when buildings are close to camera for performance
 export function createFlameManager(scene) {
-	let currentHouse = null;
-	let flamePlanes = []; // Store flame planes for cleanup
-	let sharedFlameTexture = null; // Share one animated texture across all planes for performance
+	let burningHouses = new Map(); // Map of house.mesh.id -> { house, particleSystems[], hasVisuals }
 	
 	function showOn(house) {
 		if (!house || !house.mesh) { 
 			console.log("🔥 Flames: No house or mesh provided");
-			hide(); 
 			return; 
 		}
 		
 		// Don't reapply if already on fire
-		if (currentHouse === house) {
-			console.log("🔥 Flames: House already on fire, skipping");
+		if (burningHouses.has(house.mesh.id)) {
 			return;
 		}
 		
-		// Hide previous flames
-		hide();
+		// Mark as burning but don't create visuals yet (lazy loading for performance)
+		burningHouses.set(house.mesh.id, { house, particleSystems: [], hasVisuals: false });
+	}
+	
+	// Update flames - create/destroy particle systems based on proximity to camera
+	function update(cameraPosition) {
+		const MAX_DISTANCE = 150; // Only show flames within this distance
 		
-		currentHouse = house;
-		
-		// Create shared animated texture if not exists
-		if (!sharedFlameTexture) {
-			sharedFlameTexture = createAnimatedFlameTexture(scene);
-		}
-		
-		// Get bounding box of the house
+		burningHouses.forEach((entry, houseId) => {
+			const house = entry.house;
+			const dist = BABYLON.Vector3.Distance(cameraPosition, house.mesh.position);
+			
+			if (dist < MAX_DISTANCE && !entry.hasVisuals) {
+				// Close enough - create particle systems
+				createVisualsForHouse(entry);
+			} else if (dist >= MAX_DISTANCE && entry.hasVisuals) {
+				// Too far - remove particle systems to save performance
+				destroyVisualsForHouse(entry);
+			}
+		});
+	}
+	
+	function createVisualsForHouse(entry) {
+		const house = entry.house;
 		const bbox = house.mesh.getBoundingInfo().boundingBox;
 		const min = bbox.minimumWorld;
 		const max = bbox.maximumWorld;
@@ -37,123 +47,135 @@ export function createFlameManager(scene) {
 		const height = max.y - min.y;
 		const depth = max.z - min.z;
 		
-		console.log("🔥 Flames: Creating flame planes for house", {
-			center: `(${center.x.toFixed(1)}, ${center.y.toFixed(1)}, ${center.z.toFixed(1)})`,
-			dimensions: `${width.toFixed(1)} x ${height.toFixed(1)} x ${depth.toFixed(1)}`
-		});
+		// Create particle systems for this specific house
+		const houseSystems = [];
 		
-		// Create flame planes for each face of the bounding box
-		// Each plane uses the shared animated texture
+		// Multiple layers for bigger fire effect
+		houseSystems.push(createFlameParticles(center.x, min.y + 0.5, max.z, width, height * 0.3, 0));
+		houseSystems.push(createFlameParticles(center.x, min.y + 0.5, min.z, width, height * 0.3, 0));
+		houseSystems.push(createFlameParticles(max.x, min.y + 0.5, center.z, depth, height * 0.3, Math.PI/2));
+		houseSystems.push(createFlameParticles(min.x, min.y + 0.5, center.z, depth, height * 0.3, Math.PI/2));
 		
-		// Front face (+Z)
-		createFlamePlane(center.x, center.y, max.z + 0.1, width, height, 0);
-		
-		// Back face (-Z)
-		createFlamePlane(center.x, center.y, min.z - 0.1, width, height, Math.PI);
-		
-		// Right face (+X)
-		createFlamePlane(max.x + 0.1, center.y, center.z, depth, height, -Math.PI / 2);
-		
-		// Left face (-X)
-		createFlamePlane(min.x - 0.1, center.y, center.z, depth, height, Math.PI / 2);
-		
-		// Top face (roof)
-		createFlamePlane(center.x, max.y + 0.1, center.z, width, depth, 0, true);
-		
-		console.log(`🔥 Flames: Created ${flamePlanes.length} flame planes`);
-	}
-	
-	// Create animated flame texture using canvas to render GIF frames
-	function createAnimatedFlameTexture(scene) {
-		// Create canvas for drawing GIF
-		const canvas = document.createElement('canvas');
-		canvas.width = 512;
-		canvas.height = 512;
-		const ctx = canvas.getContext('2d');
-		
-		// Load GIF as image
-		const img = new Image();
-		img.src = './flames.gif';
-		
-		// Create dynamic texture from canvas
-		const texture = new BABYLON.DynamicTexture("flameTexture", canvas, scene, false);
-		texture.hasAlpha = true;
-		texture.wrapU = BABYLON.Texture.CLAMP_ADDRESSMODE;
-		texture.wrapV = BABYLON.Texture.CLAMP_ADDRESSMODE;
-		
-		// Animation loop - redraw GIF to canvas and update texture
-		let animationRunning = true;
-		function animate() {
-			if (!animationRunning) return;
-			
-			ctx.clearRect(0, 0, canvas.width, canvas.height);
-			ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-			texture.update();
-			
-			requestAnimationFrame(animate);
+		// Mid-level flames for taller buildings
+		if (height > 5) {
+			houseSystems.push(createFlameParticles(center.x, center.y, max.z, width, height * 0.4, 0));
+			houseSystems.push(createFlameParticles(center.x, center.y, min.z, width, height * 0.4, 0));
+			houseSystems.push(createFlameParticles(max.x, center.y, center.z, depth, height * 0.4, Math.PI/2));
+			houseSystems.push(createFlameParticles(min.x, center.y, center.z, depth, height * 0.4, Math.PI/2));
 		}
 		
-		// Start animation when image loads
-		img.onload = () => {
-			console.log('🔥 Flames GIF loaded, starting animation');
-			animate();
-		};
+		// Roof flames
+		houseSystems.push(createFlameParticles(center.x, max.y, center.z, Math.max(width, depth) * 1.2, height * 0.5, 0));
 		
-		// Store cleanup function
-		texture.onDisposeObservable.add(() => {
-			animationRunning = false;
-		});
+		// Corner flames
+		houseSystems.push(createFlameParticles(max.x, min.y, max.z, 2, height * 0.6, 0));
+		houseSystems.push(createFlameParticles(min.x, min.y, max.z, 2, height * 0.6, 0));
+		houseSystems.push(createFlameParticles(max.x, min.y, min.z, 2, height * 0.6, 0));
+		houseSystems.push(createFlameParticles(min.x, min.y, min.z, 2, height * 0.6, 0));
 		
-		return texture;
+		entry.particleSystems = houseSystems;
+		entry.hasVisuals = true;
 	}
 	
-	function createFlamePlane(x, y, z, width, height, rotationY, isRoof = false) {
-		const plane = BABYLON.MeshBuilder.CreatePlane(
-			"flamePlane_" + Math.random().toString(36).slice(2), 
-			{ width: width, height: height }, 
-			scene
-		);
+	function destroyVisualsForHouse(entry) {
+		entry.particleSystems.forEach(ps => {
+			if (ps) {
+				ps.stop();
+				ps.dispose();
+			}
+		});
+		entry.particleSystems = [];
+		entry.hasVisuals = false;
+	}
+	
+	function createFlameParticles(x, y, z, span, height, rotationY) {
+		// Create particle system with more capacity for bigger fires
+		const ps = new BABYLON.ParticleSystem("flames_" + Math.random().toString(36).slice(2), 3000, scene);
 		
-		plane.position.set(x, y, z);
-		plane.rotation.y = rotationY;
+		// Texture of each particle (using a circular flare)
+		ps.particleTexture = new BABYLON.Texture("https://assets.babylonjs.com/textures/flare.png", scene);
 		
-		// Rotate roof plane to lay flat
-		if (isRoof) {
-			plane.rotation.x = Math.PI / 2;
-		}
+		// Emitter is a box along the span - wider for more coverage
+		const emitterBox = new BABYLON.BoxParticleEmitter();
+		emitterBox.minEmitBox = new BABYLON.Vector3(-span/2, 0, -0.5);
+		emitterBox.maxEmitBox = new BABYLON.Vector3(span/2, height, 0.5);
+		ps.particleEmitterType = emitterBox;
 		
-		plane.isPickable = false;
-		plane.renderingGroupId = 1; // Render after buildings to ensure visibility
+		// Position the emitter
+		ps.emitter = new BABYLON.Vector3(x, y, z);
 		
-		// Create material with shared animated texture
-		const mat = new BABYLON.StandardMaterial("flamePlaneMat_" + Math.random().toString(36).slice(2), scene);
-		mat.diffuseTexture = sharedFlameTexture;
-		mat.emissiveTexture = sharedFlameTexture;
-		mat.emissiveColor = new BABYLON.Color3(1.0, 0.8, 0.3);
-		mat.opacityTexture = sharedFlameTexture;
-		mat.backFaceCulling = false;
-		mat.disableLighting = true;
-		plane.material = mat;
+		// Colors - bright orange to yellow to red
+		ps.color1 = new BABYLON.Color4(1.0, 0.5, 0.1, 1.0); // Bright orange
+		ps.color2 = new BABYLON.Color4(1.0, 0.8, 0.2, 1.0); // Yellow-orange
+		ps.colorDead = new BABYLON.Color4(0.6, 0.2, 0.0, 0.0); // Red, transparent
 		
-		console.log(`🔥 Created flame plane at (${x.toFixed(1)}, ${y.toFixed(1)}, ${z.toFixed(1)}), size ${width.toFixed(1)}x${height.toFixed(1)}, rot ${(rotationY * 180 / Math.PI).toFixed(0)}°`);
+		// Bigger particles for more dramatic fire
+		ps.minSize = 0.5;
+		ps.maxSize = 2.0;
 		
-		flamePlanes.push(plane);
+		// Longer life time for bigger, lingering flames
+		ps.minLifeTime = 0.5;
+		ps.maxLifeTime = 1.2;
+		
+		// Higher emission rate for denser fire
+		ps.emitRate = 800;
+		
+		// Blend mode : BLENDMODE_ADD for additive (bright fire)
+		ps.blendMode = BABYLON.ParticleSystem.BLENDMODE_ADD;
+		
+		// Direction of each particle after it has been emitted - more upward
+		ps.direction1 = new BABYLON.Vector3(-0.7, 1.5, -0.7);
+		ps.direction2 = new BABYLON.Vector3(0.7, 3.0, 0.7);
+		
+		// Angular speed for spinning flames
+		ps.minAngularSpeed = 0;
+		ps.maxAngularSpeed = Math.PI * 2;
+		
+		// Higher speed for more energetic flames
+		ps.minEmitPower = 2;
+		ps.maxEmitPower = 5;
+		ps.updateSpeed = 0.01;
+		
+		// Start the particle system
+		ps.start();
+		
+		return ps;
 	}
 	
 	function hide() {
-		if (!currentHouse) return;
-		
-		// Dispose all flame planes
-		flamePlanes.forEach(plane => {
-			if (plane && !plane.isDisposed()) {
-				plane.dispose();
-			}
+		// Hide/stop flames for ALL burning houses
+		burningHouses.forEach((entry, houseId) => {
+			entry.particleSystems.forEach(ps => {
+				if (ps) {
+					ps.stop();
+					ps.dispose();
+				}
+			});
 		});
-		flamePlanes = [];
-		currentHouse = null;
+		burningHouses.clear();
+		console.log("🔥 Flames: All fires extinguished");
 	}
 	
-	return { showOn, hide };
+	function hideHouse(house) {
+		// Hide/stop flames for a specific house
+		if (!house || !house.mesh) return;
+		
+		const entry = burningHouses.get(house.mesh.id);
+		if (entry) {
+			// Destroy visuals if they exist
+			if (entry.hasVisuals) {
+				destroyVisualsForHouse(entry);
+			}
+			burningHouses.delete(house.mesh.id);
+			console.log(`🔥 Flames: Extinguished fire on house ${house.mesh.id}. Remaining fires: ${burningHouses.size}`);
+		}
+	}
+	
+	function getCount() {
+		return burningHouses.size;
+	}
+	
+	return { showOn, hide, hideHouse, update, getCount };
 }
 
 

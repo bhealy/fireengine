@@ -16,7 +16,7 @@ export function createFireSystem(scene, houses, opts = {}) {
 	}
 
 	function stopFlame(h) {
-		if (onStopVisual) onStopVisual();
+		if (onStopVisual) onStopVisual(h); // Pass house to hideHouse
 		if (fires.has(h.mesh.id)) fires.delete(h.mesh.id);
 		if (current && current.mesh.id === h.mesh.id) current = null;
 	}
