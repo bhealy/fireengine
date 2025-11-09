@@ -110,21 +110,22 @@ export function placeHouses(scene, roads, options = {}) {
 	let totalHouses = 0;
 	
 	// Available house GLBs at web root (served from /public) - relative paths for GitHub Pages
+	// Reduced to just 4 models for faster initial loading
 	const HOUSE_MODELS = [
 		"./house.glb",
 		"./farm_house.glb",
 		"./medieval_house.glb",
-		"./old_house.glb",
-		"./old_russian_house.glb",
-		"./korean_bakery.glb",
-		"./mushroom_house.glb",
-		"./stilized_house.glb",
-		"./housestation.glb",
-		"./vianney_house_2.glb",
-		"./tower_house_design.glb",
-		"./dae_final_assignment_milestone_house.glb",
-		"./house (1).glb"
-		// Intentionally exclude very large: "./house_home_-_53mb.glb"
+		"./old_house.glb"
+		// More models available but commented out for faster loading:
+		// "./old_russian_house.glb",
+		// "./korean_bakery.glb",
+		// "./mushroom_house.glb",
+		// "./stilized_house.glb",
+		// "./housestation.glb",
+		// "./vianney_house_2.glb",
+		// "./tower_house_design.glb",
+		// "./dae_final_assignment_milestone_house.glb",
+		// "./house (1).glb"
 	];
 	const houseCache = new Map(); // url -> TransformNode (source)
 	async function instantiateHouse(url, position, scale = 1) {
@@ -144,9 +145,11 @@ export function placeHouses(scene, roads, options = {}) {
 			try {
 				const tLoad = performance.now();
 				const parts = splitUrl(url);
+				console.log(`      🔽 Downloading ${parts.fileName}...`);
 				container = await BABYLON.SceneLoader.LoadAssetContainerAsync(parts.rootUrl, parts.fileName, scene);
 				houseCache.set(url, container);
-				console.log(`      ⏱️  Loaded ${parts.fileName} in ${(performance.now() - tLoad).toFixed(0)}ms`);
+				const loadTime = (performance.now() - tLoad).toFixed(0);
+				console.log(`      ⏱️  Loaded ${parts.fileName} in ${loadTime}ms (cached for reuse)`);
 			} catch (e) {
 				console.error("Failed to load house model:", url, e);
 				// Fallback box
@@ -154,6 +157,8 @@ export function placeHouses(scene, roads, options = {}) {
 				box.position.copyFrom(position.clone().add(new BABYLON.Vector3(0, 4, 0)));
 				return box;
 			}
+		} else {
+			console.log(`      ♻️  Using cached ${url}`);
 		}
 		const inst = container.instantiateModelsToScene(name => `${name}_${Math.random().toString(36).slice(2)}`);
 		const root = new BABYLON.TransformNode(`house_${Math.random().toString(36).slice(2)}`, scene);
