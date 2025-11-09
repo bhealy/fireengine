@@ -129,7 +129,7 @@ export function placeHouses(scene, roads, options = {}) {
 	];
 	const houseCache = new Map(); // url -> { container, boundingSize }
 	const loadingPromises = new Map(); // url -> Promise (prevent duplicate downloads)
-	const TARGET_HOUSE_SIZE = 50; // Target bounding box size for normalization (50 units tall)
+	const TARGET_HOUSE_SIZE = 5; // Target bounding box size for normalization (~100 pixels)
 	
 	async function instantiateHouse(url, position, scale = 1) {
 		function splitUrl(u) {
