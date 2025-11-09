@@ -103,37 +103,41 @@ export function generateRoads(scene, options = {}) {
 	return { roads, isPointOnAnyRoad };
 }
 
-export async function placeHouses(scene, roads, options = {}) {
+export function placeHouses(scene, roads, options = {}) {
 	const rng = seeded(options.seed || Math.floor(Math.random() * 1e9) + 42);
 	const houses = [];
+	const maxHouses = options.maxHouses ?? 350;
+	let totalHouses = 0;
 	
-	// Available house GLBs at web root (served from /public)
+	// Available house GLBs at web root (served from /public) - relative paths for GitHub Pages
 	const HOUSE_MODELS = [
-		"/house.glb",
-		"/farm_house.glb",
-		"/medieval_house.glb",
-		"/old_house.glb",
-		"/old_russian_house.glb",
-		"/korean_bakery.glb",
-		"/mushroom_house.glb",
-		"/stilized_house.glb",
-		"/housestation.glb",
-		"/vianney_house_2.glb",
-		"/tower_house_design.glb",
-		"/dae_final_assignment_milestone_house.glb",
-		"/house (1).glb"
-		// Intentionally exclude very large: "/house_home_-_53mb.glb"
+		"./house.glb",
+		"./farm_house.glb",
+		"./medieval_house.glb",
+		"./old_house.glb",
+		"./old_russian_house.glb",
+		"./korean_bakery.glb",
+		"./mushroom_house.glb",
+		"./stilized_house.glb",
+		"./housestation.glb",
+		"./vianney_house_2.glb",
+		"./tower_house_design.glb",
+		"./dae_final_assignment_milestone_house.glb",
+		"./house (1).glb"
+		// Intentionally exclude very large: "./house_home_-_53mb.glb"
 	];
 	const houseCache = new Map(); // url -> TransformNode (source)
 	async function instantiateHouse(url, position, scale = 1) {
 		function splitUrl(u) {
 			let p = u;
+			// Handle both absolute (/) and relative (./) paths
 			if (p.startsWith("/")) p = p.slice(1);
+			if (p.startsWith("./")) p = p.slice(2);
 			const idx = p.lastIndexOf("/");
 			if (idx >= 0) {
-				return { rootUrl: "/" + p.slice(0, idx + 1), fileName: p.slice(idx + 1) };
+				return { rootUrl: "./" + p.slice(0, idx + 1), fileName: p.slice(idx + 1) };
 			}
-			return { rootUrl: "/", fileName: p };
+			return { rootUrl: "./", fileName: p };
 		}
 		let container = houseCache.get(url);
 		if (!container) {
@@ -168,9 +172,10 @@ export async function placeHouses(scene, roads, options = {}) {
 	
 	// Place along each road; denser on minor roads, sparse on major
 	for (const r of roads) {
-		const perSide = r.isMajor ? 6 : 12;
+		const perSide = r.isMajor ? 2 : 3;
 		for (let s = -1; s <= 1; s += 2) {
 			for (let i = 0; i < perSide; i++) {
+				if (totalHouses >= maxHouses) break;
 				const t = (i + 1) / (perSide + 1);
 				const along = (t - 0.5) * r.length;
 				const away = s * (r.halfW + 8 + rng() * 10); // keep off-road with margin
@@ -180,7 +185,7 @@ export async function placeHouses(scene, roads, options = {}) {
 				const wz = r.center.z + (along * r.sin) + (away * r.cos);
 				
 				// Randomly decide between a house or an apartment (more houses on minors)
-				const chooseApartment = r.isMajor && (rng() < 0.4);
+				const chooseApartment = r.isMajor && (rng() < 0.5);
 				if (chooseApartment) {
 					// Simple 6-floor box, flat roof
 					const width = 12 + rng() * 12;
@@ -204,35 +209,51 @@ export async function placeHouses(scene, roads, options = {}) {
 				const url = HOUSE_MODELS[Math.floor(rng() * HOUSE_MODELS.length)];
 				const scale = 0.6 + rng() * 0.6;
 				const pos = new BABYLON.Vector3(wx, 0, wz);
-				// Await instantiation to ensure presence for gameplay (extinguish, visibility, etc.)
-				const node = await instantiateHouse(url, pos, scale);
+				// Create a lightweight placeholder immediately
+				const phW = 8, phD = 8, phH = 5;
+				const placeholder = BABYLON.MeshBuilder.CreateBox(`house_ph_${houses.length}`, { width: phW, depth: phD, height: phH }, scene);
+				placeholder.position.set(pos.x, phH / 2, pos.z);
+				placeholder.receiveShadows = true;
 				
-				// Determine a reasonable bounding mesh reference for gameplay
-				let meshRef = null;
-				if (node instanceof BABYLON.TransformNode) {
-					// Find a representative child mesh
-					const children = node.getChildren();
-					for (const c of children) {
-						if (c.getBoundingInfo) { meshRef = c; break; }
-					}
-					if (!meshRef) {
-						// create a small invisible box to hold bounds if needed
-						meshRef = BABYLON.MeshBuilder.CreateBox(`hb_${node.name}`, { size: 1 }, scene);
-						meshRef.isVisible = false;
-						meshRef.parent = node;
-					}
-				} else {
-					meshRef = node;
-				}
-				
-				houses.push({
-					mesh: meshRef,
+				const entry = {
+					mesh: placeholder,
 					roof: null,
 					state: "normal",
-					aabb: meshRef.getBoundingInfo().boundingBox
+					aabb: placeholder.getBoundingInfo().boundingBox
+				};
+				houses.push(entry);
+				totalHouses++;
+				
+				// Load GLB asynchronously and replace the placeholder mesh when ready
+				instantiateHouse(url, pos, scale).then((root) => {
+					// Find a representative child mesh
+					let meshRef = null;
+					if (root && root.getChildren) {
+						const children = root.getChildren();
+						for (const c of children) {
+							if (typeof c.getBoundingInfo === "function") { meshRef = c; break; }
+						}
+					}
+					if (!meshRef) {
+						// Fallback: keep placeholder if no child mesh found
+						return;
+					}
+					// Replace entry.mesh with GLB mesh and dispose placeholder
+					try {
+						entry.mesh = meshRef;
+						entry.aabb = meshRef.getBoundingInfo().boundingBox;
+						placeholder.dispose();
+					} catch (e) {
+						// In case dispose fails, just hide placeholder
+						placeholder.isVisible = false;
+					}
+				}).catch(() => {
+					// Keep placeholder on failure
 				});
 			}
+			if (totalHouses >= maxHouses) break;
 		}
+		if (totalHouses >= maxHouses) break;
 	}
 	
 	return { houses };
