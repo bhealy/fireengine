@@ -24,6 +24,7 @@ export async function createFireEngine(scene) {
 	const brakeSound = new Audio('./fast-car-braking-sound-effect-3-11000.mp3');
 	brakeSound.loop = false;
 	brakeSound.volume = 0.5;
+	let brakeSoundPlaying = false;
 
 	// Load siren sound (relative path for GitHub Pages)
 	const sirenSound = new Audio('./firetruck-78910.mp3');
@@ -70,13 +71,22 @@ export async function createFireEngine(scene) {
 		const isBrakingNow = (motion.targetSpeed < motion.speed - 1) && motion.speed > 5; // Only if moving
 		if (isBrakingNow && !motion.isBraking) {
 			// Start braking
-			brakeSound.currentTime = 0;
-			brakeSound.play().catch(err => console.log('Brake sound play failed:', err));
 			motion.isBraking = true;
+			if (!brakeSoundPlaying) {
+				brakeSound.currentTime = 0;
+				brakeSound.play().then(() => {
+					brakeSoundPlaying = true;
+					// Allow stopping after sound starts
+					brakeSound.onended = () => { brakeSoundPlaying = false; };
+				}).catch(err => console.log('Brake sound play failed:', err));
+			}
 		} else if (!isBrakingNow && motion.isBraking) {
 			// Stop braking
-			brakeSound.pause();
 			motion.isBraking = false;
+			if (brakeSoundPlaying && brakeSound.currentTime > 0.1) {
+				brakeSound.pause();
+				brakeSoundPlaying = false;
+			}
 		}
 
 		// Play siren when speed > 10
