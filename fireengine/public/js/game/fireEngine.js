@@ -19,6 +19,9 @@ export async function createFireEngine(scene) {
 		fallback.material = makeMat(scene, new BABYLON.Color3(0.8, 0.1, 0.1));
 		fallback.parent = root;
 	}
+	
+	// Scale up fire engine to match house size (houses are 50 units tall)
+	root.scaling.setAll(10); // Make fire engine 10x larger to be visible next to houses
 
 	// Load brake sound (relative path for GitHub Pages)
 	const brakeSound = new Audio('./fast-car-braking-sound-effect-3-11000.mp3');
