@@ -128,6 +128,7 @@ export function placeHouses(scene, roads, options = {}) {
 		// "./house (1).glb"
 	];
 	const houseCache = new Map(); // url -> { container, boundingSize }
+	const loadingPromises = new Map(); // url -> Promise (prevent duplicate downloads)
 	const TARGET_HOUSE_SIZE = 8; // Target bounding box size for normalization
 	
 	async function instantiateHouse(url, position, scale = 1) {
@@ -144,11 +145,19 @@ export function placeHouses(scene, roads, options = {}) {
 		}
 		let cacheEntry = houseCache.get(url);
 		if (!cacheEntry) {
-			try {
-				const tLoad = performance.now();
-				const parts = splitUrl(url);
-				console.log(`      🔽 Downloading ${parts.fileName}...`);
-				const container = await BABYLON.SceneLoader.LoadAssetContainerAsync(parts.rootUrl, parts.fileName, scene);
+			// Check if already loading - if so, wait for that promise
+			if (loadingPromises.has(url)) {
+				console.log(`      ⏳ Waiting for ${url} to finish loading...`);
+				await loadingPromises.get(url);
+				cacheEntry = houseCache.get(url);
+			} else {
+				// Start loading and store promise
+				const loadPromise = (async () => {
+					try {
+						const tLoad = performance.now();
+						const parts = splitUrl(url);
+						console.log(`      🔽 Downloading ${parts.fileName}...`);
+						const container = await BABYLON.SceneLoader.LoadAssetContainerAsync(parts.rootUrl, parts.fileName, scene);
 				
 				// Calculate bounding size for normalization
 				const tempInst = container.instantiateModelsToScene();
@@ -187,16 +196,29 @@ export function placeHouses(scene, roads, options = {}) {
 				// Clean up temp instance
 				tempInst.rootNodes.forEach(n => n.dispose());
 				
-				cacheEntry = { container, boundingSize: maxDimension };
-				houseCache.set(url, cacheEntry);
-				const loadTime = (performance.now() - tLoad).toFixed(0);
-				console.log(`      ⏱️  Loaded ${parts.fileName} in ${loadTime}ms (size: ${maxDimension.toFixed(1)}, verts: ${totalVerts}, cached)`);
-			} catch (e) {
-				console.error("Failed to load house model:", url, e);
-				// Fallback box
-				const box = BABYLON.MeshBuilder.CreateBox(`house_fallback_${Math.random().toString(36).slice(2)}`, { size: 8 }, scene);
-				box.position.copyFrom(position.clone().add(new BABYLON.Vector3(0, 4, 0)));
-				return box;
+						cacheEntry = { container, boundingSize: maxDimension };
+						houseCache.set(url, cacheEntry);
+						const loadTime = (performance.now() - tLoad).toFixed(0);
+						console.log(`      ⏱️  Loaded ${parts.fileName} in ${loadTime}ms (size: ${maxDimension.toFixed(1)}, verts: ${totalVerts}, cached)`);
+					} catch (e) {
+						console.error("Failed to load house model:", url, e);
+						// Store null to prevent retry loops
+						houseCache.set(url, null);
+						throw e;
+					}
+				})();
+				
+				loadingPromises.set(url, loadPromise);
+				await loadPromise;
+				loadingPromises.delete(url);
+				cacheEntry = houseCache.get(url);
+				
+				// If load failed, return fallback box
+				if (!cacheEntry) {
+					const box = BABYLON.MeshBuilder.CreateBox(`house_fallback_${Math.random().toString(36).slice(2)}`, { size: 8 }, scene);
+					box.position.copyFrom(position.clone().add(new BABYLON.Vector3(0, 4, 0)));
+					return box;
+				}
 			}
 		} else {
 			console.log(`      ♻️  Using cached ${url}`);

@@ -30,6 +30,7 @@ export async function createFireEngine(scene) {
 	const sirenSound = new Audio('./firetruck-78910.mp3');
 	sirenSound.loop = true;
 	sirenSound.volume = 0.6;
+	let sirenSoundPlaying = false;
 
 	// Hose/nozzle anchor (front bumper) - adjust position as needed based on actual model
 	const nozzle = new BABYLON.TransformNode("fe_nozzle", scene);
@@ -93,13 +94,20 @@ export async function createFireEngine(scene) {
 		const shouldPlaySiren = motion.speed > 10;
 		if (shouldPlaySiren && !motion.sirenPlaying) {
 			// Start siren
-			sirenSound.play().catch(err => console.log('Siren sound play failed:', err));
 			motion.sirenPlaying = true;
+			if (!sirenSoundPlaying) {
+				sirenSound.play().then(() => {
+					sirenSoundPlaying = true;
+				}).catch(err => console.log('Siren sound play failed:', err));
+			}
 		} else if (!shouldPlaySiren && motion.sirenPlaying) {
 			// Stop siren
-			sirenSound.pause();
-			sirenSound.currentTime = 0;
 			motion.sirenPlaying = false;
+			if (sirenSoundPlaying) {
+				sirenSound.pause();
+				sirenSound.currentTime = 0;
+				sirenSoundPlaying = false;
+			}
 		}
 
 		// Heading change from steering (works even at low speeds)
