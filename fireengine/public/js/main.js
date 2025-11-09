@@ -144,8 +144,15 @@ async function startGame() {
 		// Basic tick to keep engine in place until drive-logic arrives
 		scene.onBeforeRenderObservable.add(() => {
 			const dt = scene.getEngine().getDeltaTime() / 1000;
-			// Drive-logic: map control to motion (max speed now 100 mph)
-			const maxSpeed = 100; // mph
+			// Drive-logic: map control to motion (max speed now 50 mph)
+			const maxSpeed = 50; // mph
+			const minStartSpeed = 5; // mph - initial speed when starting from 0
+			
+			// If throttle is on and we're at zero speed, jump to minimum start speed
+			if (control.throttle > 0 && fe.motion.speed === 0) {
+				fe.motion.speed = minStartSpeed;
+			}
+			
 			fe.motion.targetSpeed = Math.max(0, Math.min(1, control.throttle)) * maxSpeed;
 			fe.motion.steer = BABYLON.Scalar.Clamp(control.steer, -1, 1) * fe.motion.maxSteer;
 
@@ -154,9 +161,9 @@ async function startGame() {
 			// Update camera to follow behind fire engine
 			cam.updateChaseCam();
 			
-			// Update speedometer needle (rotates from -90° at 0 mph to +90° at 100 mph)
-			const speed = Math.max(0, Math.min(100, fe.motion.speed));
-			const needleAngle = -90 + (speed / 100) * 180; // -90 to +90 degrees
+			// Update speedometer needle (rotates from -90° at 0 mph to +90° at 50 mph)
+			const speed = Math.max(0, Math.min(50, fe.motion.speed));
+			const needleAngle = -90 + (speed / 50) * 180; // -90 to +90 degrees
 			speedNeedleEl.setAttribute('transform', `rotate(${needleAngle} 70 80)`);
 			speedValueEl.textContent = Math.round(speed);
 			
@@ -259,11 +266,11 @@ async function startGame() {
 					label = "Open (Go)";
 				}
 				
-				// Show steering direction
+				// Show steering direction (flipped: left hand = right turn, right hand = left turn)
 				if (g.posX < -0.15) {
-					direction = " ← LEFT";
-				} else if (g.posX > 0.15) {
 					direction = " → RIGHT";
+				} else if (g.posX > 0.15) {
+					direction = " ← LEFT";
 				} else {
 					direction = " ↑ STRAIGHT";
 				}
@@ -288,8 +295,9 @@ async function startGame() {
 					if (g.isFist) control.throttle = 0.0;
 					// Hand position (left/right of center) controls steering
 					// posX ranges from -0.5 (left) to +0.5 (right)
+					// FLIPPED: negative posX (left hand) = positive steer (right turn)
 					const steerScale = 2.5; // multiplier for sensitivity
-					control.steer = Math.max(-1, Math.min(1, g.posX * steerScale));
+					control.steer = Math.max(-1, Math.min(1, -g.posX * steerScale));
 				} else if (game.mode === "Firefight") {
 					// Hose aiming: accumulate yaw/pitch deltas from hand motion
 					const aimScale = 2.0; // radians per normalized unit

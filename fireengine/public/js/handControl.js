@@ -41,18 +41,29 @@ export async function initHandTracking(videoEl, { onGesture } = {}) {
 		for (const t of tips) sum += Math.hypot(t.x - wrist.x, t.y - wrist.y);
 		const openScore = (sum / tips.length) / size;
 
-		// Adjusted thresholds for better fist detection
-		// Higher thresholds = easier to detect closed hand
-		const openThresh = 0.40, fistThresh = 0.32;
+		// Adjusted thresholds for better gesture detection
+		// Use hysteresis to prevent flickering but be more responsive
+		const openThresh = 0.38;  // Lowered from 0.40 for easier open detection
+		const fistThresh = 0.30;  // Lowered from 0.32 for clearer fist
+		
+		// Update state immediately based on current score (no dead zone)
 		if (openScore >= openThresh) {
-			state.isOpen = true; state.isFist = false;
+			state.isOpen = true; 
+			state.isFist = false;
 		} else if (openScore <= fistThresh) {
-			state.isOpen = false; state.isFist = true;
+			state.isOpen = false; 
+			state.isFist = true;
+		} else {
+			// In the middle zone - favor "open" for better responsiveness
+			state.isOpen = true;
+			state.isFist = false;
 		}
+		
 		// Log openScore occasionally for debugging
-		if (Math.random() < 0.01) {
+		if (Math.random() < 0.02) {
 			console.log('Hand openness score:', openScore.toFixed(3), 
-			           '(open >' + openThresh + ', fist <' + fistThresh + ')');
+			           '(open >' + openThresh + ', fist <' + fistThresh + ')',
+			           'state:', state.isOpen ? 'OPEN' : (state.isFist ? 'FIST' : 'MIDDLE'));
 		}
 
 		// motion deltas (positive dx -> move right)

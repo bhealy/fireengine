@@ -291,6 +291,17 @@ export function placeHouses(scene, roads, options = {}) {
 					const roof = BABYLON.MeshBuilder.CreateBox(`aptr_${r.orientation}_${i}_${s}`, { width: width * 1.02, depth: depth * 1.02, height: 0.4 }, scene);
 					roof.position.set(wx, height + 0.2, wz);
 					roof.material = aptRoofMat;
+					
+					// Add apartment to houses array so it can be set on fire
+					const entry = {
+						mesh: body,
+						roof: roof,
+						state: "normal",
+						aabb: body.getBoundingInfo().boundingBox
+					};
+					houses.push(entry);
+					totalHouses++;
+					
 					continue;
 				}
 				
