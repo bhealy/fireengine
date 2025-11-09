@@ -8,7 +8,7 @@ export function createFlameManager(scene) {
 	
 	// GUI on mesh to support animated GIF
 	const ui = BABYLON.GUI.AdvancedDynamicTexture.CreateForMesh(plane, 256, 256, false);
-	const img = new BABYLON.GUI.Image("flameImg", "/flames.gif");
+	const img = new BABYLON.GUI.Image("flameImg", "./flames.gif");
 	img.stretch = BABYLON.GUI.Image.STRETCH_UNIFORM;
 	ui.addControl(img);
 	
