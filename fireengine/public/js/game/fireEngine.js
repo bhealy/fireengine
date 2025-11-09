@@ -46,7 +46,8 @@ export async function createFireEngine(scene) {
 		heading: 0,        // radians world yaw
 		position: new BABYLON.Vector3(0, 0, 0),
 		isBraking: false,  // track braking state for sound
-		sirenPlaying: false // track siren state
+		sirenPlaying: false, // track siren state
+		debugCounter: 0    // for debug logging
 	};
 
 	function update(dtSec) {
@@ -119,9 +120,23 @@ export async function createFireEngine(scene) {
 
 		// Move forward
 		const forward = new BABYLON.Vector3(Math.sin(motion.heading), 0, Math.cos(motion.heading));
-		motion.position.addInPlace(forward.scale(motion.speed * dtSec));
+		const moveAmount = forward.scale(motion.speed * dtSec);
+		motion.position.addInPlace(moveAmount);
 		root.position.copyFrom(motion.position);
 		root.rotation.y = motion.heading;
+		
+		// Debug logging every 60 frames
+		motion.debugCounter++;
+		if (motion.debugCounter % 60 === 0) {
+			console.log('🚒 Fire Engine:', {
+				speed: motion.speed.toFixed(2),
+				targetSpeed: motion.targetSpeed.toFixed(2),
+				steer: motion.steer.toFixed(2),
+				position: `(${motion.position.x.toFixed(1)}, ${motion.position.z.toFixed(1)})`,
+				rootPos: `(${root.position.x.toFixed(1)}, ${root.position.z.toFixed(1)})`,
+				moveAmount: moveAmount.length().toFixed(3)
+			});
+		}
 	}
 
 	return {

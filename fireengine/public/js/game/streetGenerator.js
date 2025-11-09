@@ -172,7 +172,7 @@ export function placeHouses(scene, roads, options = {}) {
 					}
 				});
 				const size = maxVec.subtract(minVec);
-				const maxDimension = Math.max(size.x, size.y, size.z);
+				const heightDimension = size.y; // Use height (Y) for normalization so all houses same height
 				
 				// Simplify high-poly meshes for performance
 				let totalVerts = 0;
@@ -196,10 +196,10 @@ export function placeHouses(scene, roads, options = {}) {
 				// Clean up temp instance
 				tempInst.rootNodes.forEach(n => n.dispose());
 				
-						cacheEntry = { container, boundingSize: maxDimension };
+						cacheEntry = { container, boundingSize: heightDimension };
 						houseCache.set(url, cacheEntry);
 						const loadTime = (performance.now() - tLoad).toFixed(0);
-						console.log(`      ⏱️  Loaded ${parts.fileName} in ${loadTime}ms (size: ${maxDimension.toFixed(1)}, verts: ${totalVerts}, cached)`);
+						console.log(`      ⏱️  Loaded ${parts.fileName} in ${loadTime}ms (height: ${heightDimension.toFixed(1)}, verts: ${totalVerts}, cached)`);
 					} catch (e) {
 						console.error("Failed to load house model:", url, e);
 						// Store null to prevent retry loops
@@ -244,9 +244,11 @@ export function placeHouses(scene, roads, options = {}) {
 	aptRoofMat.diffuseColor = new BABYLON.Color3(0.25, 0.25, 0.28);
 	aptRoofMat.specularColor = new BABYLON.Color3(0.05, 0.05, 0.05);
 	
-	// Grass material for areas between roads
+	// Grass material with texture for areas between roads
 	const grassMat = new BABYLON.StandardMaterial("grassMat", scene);
-	grassMat.diffuseColor = new BABYLON.Color3(0.15, 0.45, 0.15); // Green grass
+	grassMat.diffuseTexture = new BABYLON.Texture("./grass.jpg", scene);
+	grassMat.diffuseTexture.uScale = 5; // Tile the texture
+	grassMat.diffuseTexture.vScale = 5;
 	grassMat.specularColor = new BABYLON.Color3(0.02, 0.02, 0.02);
 	
 	// Create grass planes between roads
@@ -307,7 +309,7 @@ export function placeHouses(scene, roads, options = {}) {
 				
 				// House placement
 				const url = HOUSE_MODELS[Math.floor(rng() * HOUSE_MODELS.length)];
-				const scale = 0.1 + rng() * 0.15; // Reduced scale: 0.1 to 0.25 (was 0.6 to 1.2)
+				const scale = 1.0; // All houses same height (50 units) after normalization
 				const pos = new BABYLON.Vector3(wx, 0, wz);
 				// Create a lightweight placeholder immediately
 				const phW = 8, phD = 8, phH = 5;
