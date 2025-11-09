@@ -142,9 +142,11 @@ export function placeHouses(scene, roads, options = {}) {
 		let container = houseCache.get(url);
 		if (!container) {
 			try {
+				const tLoad = performance.now();
 				const parts = splitUrl(url);
 				container = await BABYLON.SceneLoader.LoadAssetContainerAsync(parts.rootUrl, parts.fileName, scene);
 				houseCache.set(url, container);
+				console.log(`      ⏱️  Loaded ${parts.fileName} in ${(performance.now() - tLoad).toFixed(0)}ms`);
 			} catch (e) {
 				console.error("Failed to load house model:", url, e);
 				// Fallback box

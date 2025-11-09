@@ -20,6 +20,7 @@ startBtn.addEventListener("mouseleave", () => {
 async function startGame() {
 	startBtn.disabled = true;
 	startBtn.textContent = "Loading...";
+	const t0 = performance.now();
 	console.log("🚀 Starting game...");
 
 	const canvas = document.getElementById("renderCanvas");
@@ -29,13 +30,24 @@ async function startGame() {
 	}
 
 	try {
+		const t1 = performance.now();
 		console.log("📦 Creating scene...");
 		const { scene } = createScene(canvas);
+		console.log(`   ⏱️  Scene created in ${(performance.now() - t1).toFixed(0)}ms`);
+		
 		// Procedural world
+		const t2 = performance.now();
+		console.log("🛣️  Generating roads...");
 		const { roads, isPointOnAnyRoad } = generateRoads(scene, {});
-		const { houses } = await placeHouses(scene, roads, {});
+		console.log(`   ⏱️  Roads generated in ${(performance.now() - t2).toFixed(0)}ms`);
+		
+		const t3 = performance.now();
+		console.log("🏘️  Placing houses...");
+		const { houses } = placeHouses(scene, roads, {});
+		console.log(`   ⏱️  Houses placed in ${(performance.now() - t3).toFixed(0)}ms (${houses.length} houses)`);
 
 		// Fire system
+		const t4 = performance.now();
 		console.log("🔥 Creating fire system...");
 		const flames = createFlameManager(scene);
 		const fire = createFireSystem(scene, houses, {
@@ -43,11 +55,13 @@ async function startGame() {
 			onStop: () => flames.hide()
 		});
 		fire.igniteRandomLater();
+		console.log(`   ⏱️  Fire system created in ${(performance.now() - t4).toFixed(0)}ms`);
 
 		// Fire engine + camera follow (async load)
+		const t5 = performance.now();
 		console.log("🚒 Loading fire engine model...");
 		const fe = await createFireEngine(scene);
-		console.log("✅ Fire engine loaded!");
+		console.log(`   ⏱️  Fire engine loaded in ${(performance.now() - t5).toFixed(0)}ms`);
 		const cam = makeFollowCamera(scene, fe.root);
 		scene.activeCamera = cam;
 		cam.attachControl(canvas, true);
@@ -186,6 +200,7 @@ async function startGame() {
 		window.__GAME__ = { scene, roads, houses, isPointOnAnyRoad, fe, control, game, hud, fire, water };
 
 		// MediaPipe init + gesture mapping
+		const t6 = performance.now();
 		console.log("📹 Requesting camera access...");
 		const video = document.getElementById("inputVideo");
 		let gestureDebugCount = 0;
@@ -257,9 +272,13 @@ async function startGame() {
 			}
 		});
 
+		console.log(`   ⏱️  Camera initialized in ${(performance.now() - t6).toFixed(0)}ms`);
+		
 		// Hide splash and show game
 		document.getElementById("cameraPrompt").style.display = "none";
-		console.log("Game started successfully!");
+		
+		const totalTime = performance.now() - t0;
+		console.log(`\n✅ Game started successfully! Total load time: ${totalTime.toFixed(0)}ms (${(totalTime/1000).toFixed(2)}s)\n`);
 
 	} catch (err) {
 		// Camera permission denied - show detailed help
