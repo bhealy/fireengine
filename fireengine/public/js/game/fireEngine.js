@@ -132,9 +132,11 @@ export async function createFireEngine(scene) {
 				speed: motion.speed.toFixed(2),
 				targetSpeed: motion.targetSpeed.toFixed(2),
 				steer: motion.steer.toFixed(2),
-				position: `(${motion.position.x.toFixed(1)}, ${motion.position.z.toFixed(1)})`,
-				rootPos: `(${root.position.x.toFixed(1)}, ${root.position.z.toFixed(1)})`,
-				moveAmount: moveAmount.length().toFixed(3)
+				'motion.position': `(${motion.position.x.toFixed(1)}, ${motion.position.z.toFixed(1)})`,
+				'root.position': `(${root.position.x.toFixed(1)}, ${root.position.z.toFixed(1)})`,
+				'root.absolutePosition': `(${root.getAbsolutePosition().x.toFixed(1)}, ${root.getAbsolutePosition().z.toFixed(1)})`,
+				moveAmount: moveAmount.length().toFixed(3),
+				heading: (motion.heading * 180 / Math.PI).toFixed(1) + '°'
 			});
 		}
 	}
