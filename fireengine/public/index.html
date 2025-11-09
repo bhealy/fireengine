@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>One-Hand Fire Engine</title>
+	<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+	<!-- Camera permission splash screen -->
+	<div id="cameraPrompt" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; 
+	                                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
+	                                display: flex; align-items: center; justify-content: center; z-index: 1000;">
+		<div style="background: rgba(255,255,255,0.95); padding: 50px; border-radius: 20px; 
+		            max-width: 600px; text-align: center; box-shadow: 0 20px 60px rgba(0,0,0,0.3);">
+			<h1 style="color: #333; margin-bottom: 20px; font-size: 32px;">🚒 Rory's Fire Brigade</h1>
+			<p style="color: #555; font-size: 18px; line-height: 1.8; margin-bottom: 30px;">
+				This game uses your <strong>camera</strong> to track hand movements.<br>
+				Control the fire engine with simple gestures:
+			</p>
+			<div style="background: #f0f0f0; padding: 20px; border-radius: 10px; margin-bottom: 30px; text-align: left;">
+				<p style="margin: 8px 0; font-size: 16px;">✋ <strong>Open hand</strong> = Drive forward</p>
+				<p style="margin: 8px 0; font-size: 16px;">✊ <strong>Closed fist</strong> = Stop</p>
+				<p style="margin: 8px 0; font-size: 16px;">👈👉 <strong>Move hand left/right</strong> = Steer</p>
+			</div>
+			<p style="color: #666; font-size: 14px; margin-bottom: 30px;">
+				🔒 Your video never leaves your browser. Privacy guaranteed.
+			</p>
+			<button id="startGameBtn" style="background: #ff4444; color: white; border: none; 
+			                                    padding: 18px 40px; font-size: 20px; font-weight: bold; 
+			                                    border-radius: 50px; cursor: pointer; 
+			                                    box-shadow: 0 4px 15px rgba(255,68,68,0.4);
+			                                    transition: transform 0.2s;">
+				🎮 Start Game & Allow Camera
+			</button>
+			<p id="permissionHelp" style="color: #999; font-size: 13px; margin-top: 20px; display: none;">
+				<strong>Need help allowing camera?</strong><br>
+				<span id="browserHelp"></span>
+			</p>
+		</div>
+	</div>
+
+	<div id="hud">
+		<div class="row">
+			<div class="brand">Rory's Fire Brigade</div>
+			<div class="spacer"></div>
+			<div id="score">Score: 0</div>
+			<div id="mode">Mode: Driving</div>
+		</div>
+		<div id="messages" aria-live="polite"></div>
+		
+		<!-- Analog speedometer -->
+		<div id="speedometer" style="position: fixed; bottom: 180px; left: 20px; 
+		                             background: rgba(0,0,0,0.9); padding: 20px; border-radius: 15px;
+		                             color: white; text-align: center;
+		                             border: 3px solid rgba(255,255,255,0.3); z-index: 1000;">
+			<div style="font-size: 12px; color: #aaa; margin-bottom: 10px;">SPEED (MPH)</div>
+			<svg width="140" height="100" viewBox="0 0 140 100" style="display: block; margin: 0 auto;">
+				<!-- Gauge background arc -->
+				<path d="M 20 80 A 50 50 0 0 1 120 80" fill="none" stroke="#333" stroke-width="12" stroke-linecap="round"/>
+				<!-- Colored gauge segments -->
+				<path d="M 20 80 A 50 50 0 0 1 50 35" fill="none" stroke="#4CAF50" stroke-width="12" stroke-linecap="round"/>
+				<path d="M 50 35 A 50 50 0 0 1 90 35" fill="none" stroke="#FFC107" stroke-width="12" stroke-linecap="round"/>
+				<path d="M 90 35 A 50 50 0 0 1 120 80" fill="none" stroke="#FF5722" stroke-width="12" stroke-linecap="round"/>
+				<!-- Speed tick marks -->
+				<text x="15" y="85" fill="#888" font-size="10">0</text>
+				<text x="35" y="48" fill="#888" font-size="10">25</text>
+				<text x="65" y="30" fill="#888" font-size="10">50</text>
+				<text x="95" y="48" fill="#888" font-size="10">75</text>
+				<text x="118" y="85" fill="#888" font-size="10">100</text>
+				<!-- Needle -->
+				<g id="speedNeedle" transform="rotate(-90 70 80)">
+					<line x1="70" y1="80" x2="70" y2="38" stroke="#fff" stroke-width="3" stroke-linecap="round"/>
+					<circle cx="70" cy="80" r="6" fill="#fff"/>
+					<circle cx="70" cy="80" r="3" fill="#000"/>
+				</g>
+			</svg>
+			<div id="speedValue" style="font-weight: bold; font-size: 28px; margin-top: 5px;">0</div>
+		</div>
+		
+		<!-- Hand state visual feedback -->
+		<div id="handState" style="position: fixed; bottom: 20px; left: 20px; 
+		                           background: rgba(0,0,0,0.8); padding: 20px; border-radius: 10px;
+		                           color: white; font-size: 48px; min-width: 150px; text-align: center;
+		                           border: 2px solid rgba(255,255,255,0.3); z-index: 1000;">
+			<div id="handIcon">❓</div>
+			<div style="font-size: 16px; margin-top: 8px; font-weight: bold;" id="handLabel">No hand</div>
+		</div>
+	</div>
+
+	<!-- Render canvas -->
+	<canvas id="renderCanvas" tabindex="0" aria-label="Game canvas"></canvas>
+
+	<!-- Debug webcam preview (small, can be hidden with CSS) -->
+	<video id="inputVideo" autoplay playsinline muted></video>
+
+	<!-- Babylon.js (core + GUI + loaders) -->
+	<script src="https://cdn.babylonjs.com/babylon.js"></script>
+	<script src="https://cdn.babylonjs.com/loaders/babylonjs.loaders.min.js"></script>
+	<script src="https://cdn.babylonjs.com/gui/babylon.gui.min.js"></script>
+
+	<!-- MediaPipe Hands -->
+	<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+	<script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
+	<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+
+	<!-- App -->
+	<script type="module" src="/js/main.js"></script>
+</body>
+<!--
+This game uses the webcam. Video never leaves the browser.
+-->
+</html>
+
+

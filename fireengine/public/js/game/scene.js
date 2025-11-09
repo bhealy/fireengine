@@ -1,0 +1,72 @@
+// Scene and engine initialization
+export function createScene(canvas) {
+	const engine = new BABYLON.Engine(canvas, true, { preserveDrawingBuffer: true, stencil: true });
+	const scene = new BABYLON.Scene(engine);
+	scene.clearColor = new BABYLON.Color4(0.02, 0.03, 0.05, 1.0);
+
+	// Lighting
+	const hemi = new BABYLON.HemisphericLight("hemi", new BABYLON.Vector3(0, 1, 0), scene);
+	hemi.intensity = 0.75;
+	const dir = new BABYLON.DirectionalLight("dir", new BABYLON.Vector3(-0.5, -1, -0.25), scene);
+	dir.position = new BABYLON.Vector3(60, 120, 60);
+	dir.intensity = 0.6;
+
+	// Default camera (will be replaced by follow camera when engine mesh is created)
+	const camera = new BABYLON.ArcRotateCamera("cam", -Math.PI / 2, Math.PI / 3, 80, new BABYLON.Vector3(0, 0, 0), scene);
+	camera.lowerRadiusLimit = 30;
+	camera.upperRadiusLimit = 200;
+	camera.wheelPrecision = 50;
+	camera.attachControl(canvas, true);
+
+	// Simple ambient ground reference
+	const cityExtent = 1000;
+	const ground = BABYLON.MeshBuilder.CreateGround("ground", { width: cityExtent * 2 + 200, height: cityExtent * 2 + 200, subdivisions: 1 }, scene);
+	const gmat = new BABYLON.StandardMaterial("groundMat", scene);
+	gmat.diffuseColor = new BABYLON.Color3(0.05, 0.08, 0.1);
+	gmat.specularColor = new BABYLON.Color3(0, 0, 0);
+	ground.material = gmat;
+
+	// Resize
+	window.addEventListener("resize", () => engine.resize());
+	engine.runRenderLoop(() => scene.render());
+
+	return { engine, scene, camera, ground, dir };
+}
+
+// Factory for a chase camera that keeps fire engine centered on screen
+export function makeFollowCamera(scene, targetMesh) {
+	// Use UniversalCamera for better control
+	const cam = new BABYLON.UniversalCamera("chaseCam", new BABYLON.Vector3(0, 10, -30), scene);
+	
+	// Store reference to the fire engine mesh
+	cam.targetMesh = targetMesh;
+	
+	// Custom update function to keep fire engine centered
+	cam.updateChaseCam = function() {
+		// Get the fire engine's position and rotation
+		const enginePos = this.targetMesh.position.clone();
+		const engineHeading = this.targetMesh.rotation.y;
+		
+		// Camera stays fixed distance behind and above the engine
+		const distance = 30; // distance behind
+		const height = 12; // height above
+		
+		// Calculate camera position directly behind the engine
+		// This rotates with the engine so it's always centered
+		const offsetX = -Math.sin(engineHeading) * distance;
+		const offsetZ = -Math.cos(engineHeading) * distance;
+		
+		// Set camera position (no lerp - instant follow for centering)
+		this.position.x = enginePos.x + offsetX;
+		this.position.y = enginePos.y + height;
+		this.position.z = enginePos.z + offsetZ;
+		
+		// Always look at the fire engine (slightly above center for better view)
+		const lookAtPos = enginePos.add(new BABYLON.Vector3(0, 3, 0));
+		this.setTarget(lookAtPos);
+	};
+	
+	return cam;
+}
+
+
