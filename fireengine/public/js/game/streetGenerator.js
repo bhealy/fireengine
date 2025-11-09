@@ -207,7 +207,7 @@ export function placeHouses(scene, roads, options = {}) {
 				
 				// House placement
 				const url = HOUSE_MODELS[Math.floor(rng() * HOUSE_MODELS.length)];
-				const scale = 0.6 + rng() * 0.6;
+				const scale = 0.1 + rng() * 0.15; // Reduced scale: 0.1 to 0.25 (was 0.6 to 1.2)
 				const pos = new BABYLON.Vector3(wx, 0, wz);
 				// Create a lightweight placeholder immediately
 				const phW = 8, phD = 8, phH = 5;
