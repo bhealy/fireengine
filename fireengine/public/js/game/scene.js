@@ -2,7 +2,7 @@
 export function createScene(canvas) {
 	const engine = new BABYLON.Engine(canvas, true, { preserveDrawingBuffer: true, stencil: true });
 	const scene = new BABYLON.Scene(engine);
-	scene.clearColor = new BABYLON.Color4(0.02, 0.03, 0.05, 1.0);
+	scene.clearColor = new BABYLON.Color4(0.53, 0.81, 0.92, 1.0); // Sky blue to match horizon
 
 	// Lighting
 	const hemi = new BABYLON.HemisphericLight("hemi", new BABYLON.Vector3(0, 1, 0), scene);
@@ -18,13 +18,19 @@ export function createScene(canvas) {
 	camera.wheelPrecision = 50;
 	camera.attachControl(canvas, true);
 
-	// Simple ambient ground reference
+	// Ground with grass texture
 	const cityExtent = 1000;
 	const ground = BABYLON.MeshBuilder.CreateGround("ground", { width: cityExtent * 2 + 200, height: cityExtent * 2 + 200, subdivisions: 1 }, scene);
+	ground.position.y = -0.05; // Lower slightly to prevent z-fighting with roads
+	
 	const gmat = new BABYLON.StandardMaterial("groundMat", scene);
-	gmat.diffuseColor = new BABYLON.Color3(0.05, 0.08, 0.1);
-	gmat.specularColor = new BABYLON.Color3(0, 0, 0);
+	const grassTexture = new BABYLON.Texture("./grass.jpg", scene);
+	grassTexture.uScale = (cityExtent * 2 + 200) / 10; // Tile the texture (repeat every 10 units)
+	grassTexture.vScale = (cityExtent * 2 + 200) / 10;
+	gmat.diffuseTexture = grassTexture;
+	gmat.specularColor = new BABYLON.Color3(0.05, 0.05, 0.05);
 	ground.material = gmat;
+	ground.receiveShadows = true;
 
 	// Resize
 	window.addEventListener("resize", () => engine.resize());
@@ -37,6 +43,8 @@ export function createScene(canvas) {
 export function makeFollowCamera(scene, targetMesh) {
 	// Use UniversalCamera for better control
 	const cam = new BABYLON.UniversalCamera("chaseCam", new BABYLON.Vector3(0, 10, -30), scene);
+	cam.maxZ = 3000; // Far clip plane - extend to see more of the city
+	cam.minZ = 0.1; // Near clip plane
 	
 	// Store reference to the fire engine mesh
 	cam.targetMesh = targetMesh;

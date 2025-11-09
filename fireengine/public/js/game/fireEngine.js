@@ -4,20 +4,121 @@ export async function createFireEngine(scene) {
 
 	// Load the fire engine model (relative path for GitHub Pages)
 	try {
-		const result = await BABYLON.SceneLoader.ImportMeshAsync("", "./", "fire_engine.babylon", scene);
-		// Ensure ALL top-level nodes (meshes AND transform nodes) are parented to our root.
-		// Some GLTF/Babylon models include a top-level TransformNode that owns all meshes;
-		// those meshes would already have a parent, so we must also re-parent transform nodes.
-		const topLevelMeshes = result.meshes.filter(m => !m.parent);
-		const topLevelTransforms = (result.transformNodes || []).filter(t => !t.parent);
-		[...topLevelMeshes, ...topLevelTransforms].forEach(n => { n.parent = root; });
-		console.log("Fire engine loaded:", result.meshes.length, "meshes");
+		const result = await BABYLON.SceneLoader.ImportMeshAsync("", "./", "low_poly_fire_truck.glb", scene);
+		console.log("Engine: import complete → meshes=", result.meshes?.length ?? 0, "transforms=", (result.transformNodes?.length ?? 0));
+		// Ensure the ENTIRE imported model follows `root` by re-parenting the unique
+		// top-most ancestors to `root` while preserving world transforms.
+		// We'll then move them under a `visual` node that can carry a fixed orientation offset.
+		function topAncestor(node) {
+			let n = node;
+			while (n && n.parent) n = n.parent;
+			return n;
+		}
+		function reparentPreserveWorld(node, newParent) {
+			try {
+				const wm = node.computeWorldMatrix(true);
+				const s = new BABYLON.Vector3();
+				const q = new BABYLON.Quaternion();
+				const p = new BABYLON.Vector3();
+				wm.decompose(s, q, p);
+				node.parent = newParent;
+				node.position.copyFrom(p);
+				if (node.rotationQuaternion) {
+					node.rotationQuaternion.copyFrom(q);
+				} else {
+					const e = q.toEulerAngles();
+					node.rotation.set(e.x, e.y, e.z);
+				}
+				node.scaling.copyFrom(s);
+			} catch (e) {
+				console.log("Engine: reparentPreserveWorld failed for", node.name, e);
+				node.parent = newParent;
+			}
+		}
+		const candidates = [
+			...(result.meshes || []),
+			...((result.transformNodes || []))
+		];
+		const ancestors = new Map(); // top -> true
+		candidates.forEach(n => {
+			const top = topAncestor(n);
+			if (top && top !== root) ancestors.set(top, true);
+		});
+		let reparented = 0;
+		ancestors.forEach((_, n) => {
+			reparentPreserveWorld(n, root);
+			reparented++;
+		});
+		console.log("Engine: reparented unique top ancestors →", reparented, " rootChildren=", root.getChildren()?.length ?? 0);
+		
+		// Create a visual container under root to allow a fixed orientation offset
+		const visual = new BABYLON.TransformNode("fireEngineVisual", scene);
+		visual.parent = root;
+		// Move the imported ancestors under `visual` (keep world transforms stable because visual == identity)
+		ancestors.forEach((_, n) => { n.parent = visual; });
+		
+		// Auto-detect forward axis and apply yaw offset so model points along +Z when heading=0.
+		let yawOffset = 0;
+		try {
+			const meshes = visual.getChildMeshes ? visual.getChildMeshes() : [];
+			if (meshes.length > 0) {
+				let minW = new BABYLON.Vector3( Infinity,  Infinity,  Infinity);
+				let maxW = new BABYLON.Vector3(-Infinity, -Infinity, -Infinity);
+				for (const m of meshes) {
+					if (!m.getBoundingInfo) continue;
+					const bb = m.getBoundingInfo().boundingBox;
+					minW = BABYLON.Vector3.Minimize(minW, bb.minimumWorld);
+					maxW = BABYLON.Vector3.Maximize(maxW, bb.maximumWorld);
+				}
+				const sizeX = maxW.x - minW.x;
+				const sizeZ = maxW.z - minW.z;
+				// If the model is longer in X than Z, assume it faces +X and rotate -90° so +X -> +Z.
+				if (sizeX > sizeZ * 1.05) {
+					yawOffset = -Math.PI / 2;
+				} else {
+					yawOffset = 0; // already roughly along Z
+				}
+			}
+		} catch (e) {
+			console.log("Engine: auto yaw offset detection failed:", e);
+		}
+		visual.rotation.y = yawOffset;
+		console.log("Engine: orientation yaw offset (deg) =", (yawOffset * 180 / Math.PI).toFixed(1));
+		
+		// Add a simple marker under root so movement is always visible
+		try {
+			const marker = BABYLON.MeshBuilder.CreateSphere("engineMarker", { diameter: 1.0, segments: 8 }, scene);
+			const markerMat = new BABYLON.StandardMaterial("engineMarkerMat", scene);
+			markerMat.emissiveColor = new BABYLON.Color3(1, 0.2, 0.2);
+			markerMat.diffuseColor = new BABYLON.Color3(1, 0.2, 0.2);
+			marker.material = markerMat;
+			marker.parent = root;
+			marker.position.y = 2.0;
+			console.log("Engine: marker added at local (0,2,0)");
+		} catch (e) {
+			console.log("Engine: could not create marker", e);
+		}
+		console.log("Engine: Fire engine loaded and attached to root.");
 	} catch (err) {
-		console.error("Failed to load fire_engine.babylon:", err);
+		console.error("Engine: Failed to load low_poly_fire_truck.glb:", err);
 		// Fallback: create a simple box so game doesn't crash
 		const fallback = BABYLON.MeshBuilder.CreateBox("fe_fallback", { size: 2 }, scene);
 		fallback.material = makeMat(scene, new BABYLON.Color3(0.8, 0.1, 0.1));
 		fallback.parent = root;
+		console.log("Engine: Using fallback box mesh.");
+	}
+	// Add a visible marker so we can clearly see the engine moving
+	try {
+		const marker = BABYLON.MeshBuilder.CreateSphere("engineMarker", { diameter: 1.0, segments: 8 }, scene);
+		const markerMat = new BABYLON.StandardMaterial("engineMarkerMat", scene);
+		markerMat.emissiveColor = new BABYLON.Color3(1, 0.2, 0.2);
+		markerMat.diffuseColor = new BABYLON.Color3(1, 0.2, 0.2);
+		marker.material = markerMat;
+		marker.parent = root;
+		marker.position.y = 2.0;
+		console.log("Engine: marker added at local (0,2,0)");
+	} catch (e) {
+		console.log("Engine: could not create marker", e);
 	}
 
 	// Load brake sound (relative path for GitHub Pages)
@@ -52,7 +153,7 @@ export async function createFireEngine(scene) {
 
 	function update(dtSec) {
 		// Basic acceleration/braking (braking 3x faster than acceleration)
-		const accel = 3.0; // Slower acceleration for smoother control
+		const accel = 6.0; // Doubled from 3.0 for faster straight-line acceleration
 		const brake = 9.0; // 3x faster braking
 		
 		// Check if we're turning (steer threshold)
@@ -92,6 +193,7 @@ export async function createFireEngine(scene) {
 					brakeSound.onended = () => { brakeSoundPlaying = false; };
 				}).catch(err => console.log('Brake sound play failed:', err));
 			}
+			console.log("Engine: braking start. speed=", motion.speed.toFixed(2), "target=", motion.targetSpeed.toFixed(2));
 		} else if (!isBrakingNow && motion.isBraking) {
 			// Stop braking
 			motion.isBraking = false;
@@ -99,6 +201,7 @@ export async function createFireEngine(scene) {
 				brakeSound.pause();
 				brakeSoundPlaying = false;
 			}
+			console.log("Engine: braking stop. speed=", motion.speed.toFixed(2), "target=", motion.targetSpeed.toFixed(2));
 		}
 
 		// Play siren when speed > 10
@@ -111,6 +214,7 @@ export async function createFireEngine(scene) {
 					sirenSoundPlaying = true;
 				}).catch(err => console.log('Siren sound play failed:', err));
 			}
+			console.log("Engine: siren start. speed=", motion.speed.toFixed(2));
 		} else if (!shouldPlaySiren && motion.sirenPlaying) {
 			// Stop siren
 			motion.sirenPlaying = false;
@@ -119,12 +223,13 @@ export async function createFireEngine(scene) {
 				sirenSound.currentTime = 0;
 				sirenSoundPlaying = false;
 			}
+			console.log("Engine: siren stop. speed=", motion.speed.toFixed(2));
 		}
 
 		// Heading change from steering (works even at low speeds)
 		// Minimum turn rate so steering works when slow/stopped
-		const minTurnSpeed = 0.3;
-		const speedFactor = Math.max(minTurnSpeed, motion.speed / 10.0);
+		const minTurnSpeed = 0.6; // Doubled from 0.3 for faster turning
+		const speedFactor = Math.max(minTurnSpeed, motion.speed / 5.0); // Changed from /10.0 to /5.0 to double turn speed
 		const steerFactor = motion.steer * speedFactor;
 		motion.heading += steerFactor * dtSec;
 
@@ -138,13 +243,14 @@ export async function createFireEngine(scene) {
 		// Debug logging every 60 frames
 		motion.debugCounter++;
 		if (motion.debugCounter % 60 === 0) {
-			console.log('🚒 Fire Engine:', {
+			const abs = root.getAbsolutePosition();
+			console.log('Engine:', {
 				speed: motion.speed.toFixed(2),
 				targetSpeed: motion.targetSpeed.toFixed(2),
 				steer: motion.steer.toFixed(2),
 				'motion.position': `(${motion.position.x.toFixed(1)}, ${motion.position.z.toFixed(1)})`,
 				'root.position': `(${root.position.x.toFixed(1)}, ${root.position.z.toFixed(1)})`,
-				'root.absolutePosition': `(${root.getAbsolutePosition().x.toFixed(1)}, ${root.getAbsolutePosition().z.toFixed(1)})`,
+				'root.absolutePosition': `(${abs.x.toFixed(1)}, ${abs.z.toFixed(1)})`,
 				moveAmount: moveAmount.length().toFixed(3),
 				heading: (motion.heading * 180 / Math.PI).toFixed(1) + '°'
 			});

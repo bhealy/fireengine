@@ -91,6 +91,34 @@ async function startGame() {
 		hud.setScore(0);
 		hud.setMode("Driving");
 
+		// Click/touch: ignite the clicked building
+		function isDescendantOf(node, maybeAncestor) {
+			let n = node;
+			while (n) {
+				if (n === maybeAncestor) return true;
+				n = n.parent;
+			}
+			return false;
+		}
+		function findHouseFromMesh(mesh) {
+			for (const h of houses) {
+				if (mesh === h.mesh || isDescendantOf(mesh, h.mesh) || isDescendantOf(h.mesh, mesh)) {
+					return h;
+				}
+			}
+			return null;
+		}
+		scene.onPointerObservable.add((pi) => {
+			if (pi.type !== BABYLON.PointerEventTypes.POINTERPICK) return;
+			const pick = pi.pickInfo;
+			if (!pick || !pick.hit || !pick.pickedMesh) return;
+			const house = findHouseFromMesh(pick.pickedMesh);
+			if (house && house.state !== "destroyed") {
+				// Start fire on the clicked house
+				fire.startFlame(house);
+			}
+		});
+
 		// Water system (requires engine nozzle) and failure hook
 		const water = fire.createWater(fe.nozzle);
 		fire.onDestroyed((h) => {

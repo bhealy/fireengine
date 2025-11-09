@@ -109,27 +109,14 @@ export function placeHouses(scene, roads, options = {}) {
 	const maxHouses = options.maxHouses ?? 350;
 	let totalHouses = 0;
 	
-	// Available house GLBs at web root (served from /public) - relative paths for GitHub Pages
-	// Reduced to just 4 models for faster initial loading
-	const HOUSE_MODELS = [
-		"./house.glb",
-		"./farm_house.glb",
-		"./medieval_house.glb",
-		"./old_house.glb"
-		// More models available but commented out for faster loading:
-		// "./old_russian_house.glb",
-		// "./korean_bakery.glb",
-		// "./mushroom_house.glb",
-		// "./stilized_house.glb",
-		// "./housestation.glb",
-		// "./vianney_house_2.glb",
-		// "./tower_house_design.glb",
-		// "./dae_final_assignment_milestone_house.glb",
-		// "./house (1).glb"
-	];
-	const houseCache = new Map(); // url -> { container, boundingSize }
-	const loadingPromises = new Map(); // url -> Promise (prevent duplicate downloads)
-	const TARGET_HOUSE_SIZE = 5; // Target bounding box size for normalization (~100 pixels)
+	// TEMPORARILY DISABLED: GLB loading is too slow, using simple boxes instead
+	const USE_GLBS = false; // Set to true to re-enable GLB models
+	
+	const HOUSE_MODELS = []; // Disabled temporarily
+	const MAX_VERTICES = 3000;
+	const houseCache = new Map();
+	const loadingPromises = new Map();
+	const TARGET_HOUSE_SIZE = 5;
 	
 	async function instantiateHouse(url, position, scale = 1) {
 		function splitUrl(u) {
@@ -174,27 +161,21 @@ export function placeHouses(scene, roads, options = {}) {
 				const size = maxVec.subtract(minVec);
 				const heightDimension = size.y; // Use height (Y) for normalization so all houses same height
 				
-				// Simplify high-poly meshes for performance
+				// Count vertices and check against limit
 				let totalVerts = 0;
 				allMeshes.forEach(m => {
 					if (m.getTotalVertices) totalVerts += m.getTotalVertices();
-					// If mesh has >5000 vertices, reduce detail
-					if (m.getTotalVertices && m.getTotalVertices() > 5000) {
-						try {
-							m.simplify(
-								[{ quality: 0.5, distance: 100 }],
-								false,
-								BABYLON.SimplificationType.QUADRATIC,
-								() => console.log(`         🔻 Simplified ${m.name}`)
-							);
-						} catch (e) {
-							console.log(`         ⚠️  Could not simplify ${m.name}`);
-						}
-					}
 				});
 				
 				// Clean up temp instance
 				tempInst.rootNodes.forEach(n => n.dispose());
+				
+				// TEMPORARY: Skip models with too many vertices
+				if (totalVerts > MAX_VERTICES) {
+					console.log(`      ⏭️  Skipping ${parts.fileName} - too many vertices (${totalVerts} > ${MAX_VERTICES})`);
+					houseCache.set(url, null); // Mark as skipped
+					return;
+				}
 				
 						cacheEntry = { container, boundingSize: heightDimension };
 						houseCache.set(url, cacheEntry);
@@ -245,31 +226,32 @@ export function placeHouses(scene, roads, options = {}) {
 	aptRoofMat.specularColor = new BABYLON.Color3(0.05, 0.05, 0.05);
 	
 	// Grass material with texture for areas between roads
-	const grassMat = new BABYLON.StandardMaterial("grassMat", scene);
-	grassMat.diffuseTexture = new BABYLON.Texture("./grass.jpg", scene);
-	grassMat.diffuseTexture.uScale = 5; // Tile the texture
-	grassMat.diffuseTexture.vScale = 5;
-	grassMat.specularColor = new BABYLON.Color3(0.02, 0.02, 0.02);
+	// Note: Grass texture is now on the main ground plane in scene.js
+	// No need for separate grass planes
 	
-	// Create grass planes between roads
-	for (const r of roads) {
-		const grassWidth = 40; // Width of grass strip on each side
-		for (let side = -1; side <= 1; side += 2) {
-			const grassOffset = side * (r.halfW + grassWidth / 2);
-			const grass = BABYLON.MeshBuilder.CreatePlane(`grass_${r.orientation}`, {
-				width: r.length,
-				height: grassWidth
-			}, scene);
-			grass.rotation.x = Math.PI / 2; // Lay flat
-			grass.rotation.y = r.angle;
-			grass.position.set(
-				r.center.x + (-grassOffset * r.sin),
-				0.01, // Slightly above ground to prevent z-fighting
-				r.center.z + (grassOffset * r.cos)
-			);
-			grass.material = grassMat;
-			grass.receiveShadows = true;
+	// Helper to check if a building footprint overlaps any road
+	function buildingOverlapsRoad(centerX, centerZ, buildingWidth, buildingDepth) {
+		const halfW = buildingWidth / 2;
+		const halfD = buildingDepth / 2;
+		// Check all 4 corners of the building
+		const corners = [
+			{ x: centerX - halfW, z: centerZ - halfD },
+			{ x: centerX + halfW, z: centerZ - halfD },
+			{ x: centerX - halfW, z: centerZ + halfD },
+			{ x: centerX + halfW, z: centerZ + halfD }
+		];
+		for (const corner of corners) {
+			for (const road of roads) {
+				const dx = corner.x - road.center.x;
+				const dz = corner.z - road.center.z;
+				const localX = dx * road.cos + dz * road.sin;
+				const localZ = -dx * road.sin + dz * road.cos;
+				if (Math.abs(localX) <= road.halfL && Math.abs(localZ) <= road.halfW) {
+					return true; // Corner is on a road
+				}
+			}
 		}
+		return false;
 	}
 	
 	// Place along each road; denser on minor roads, sparse on major
@@ -295,6 +277,11 @@ export function placeHouses(scene, roads, options = {}) {
 					const floorH = 3.0;
 					const height = floorH * 6;
 					
+					// Check if apartment would overlap any road
+					if (buildingOverlapsRoad(wx, wz, width, depth)) {
+						continue; // Skip this apartment, it overlaps a road
+					}
+					
 					const body = BABYLON.MeshBuilder.CreateBox(`apt_${r.orientation}_${i}_${s}`, { width, depth, height }, scene);
 					body.position.set(wx, height / 2, wz);
 					body.material = aptWallMat;
@@ -308,11 +295,16 @@ export function placeHouses(scene, roads, options = {}) {
 				}
 				
 				// House placement
-				const url = HOUSE_MODELS[Math.floor(rng() * HOUSE_MODELS.length)];
 				const scale = 1.0; // All houses same height (50 units) after normalization
 				const pos = new BABYLON.Vector3(wx, 0, wz);
 				// Create a lightweight placeholder immediately
 				const phW = 8, phD = 8, phH = 5;
+				
+				// Check if house would overlap any road
+				if (buildingOverlapsRoad(wx, wz, phW, phD)) {
+					continue; // Skip this house, it overlaps a road
+				}
+				
 				const placeholder = BABYLON.MeshBuilder.CreateBox(`house_ph_${houses.length}`, { width: phW, depth: phD, height: phH }, scene);
 				placeholder.position.set(pos.x, phH / 2, pos.z);
 				placeholder.receiveShadows = true;
@@ -326,32 +318,37 @@ export function placeHouses(scene, roads, options = {}) {
 				houses.push(entry);
 				totalHouses++;
 				
-				// Load GLB asynchronously and replace the placeholder mesh when ready
-				instantiateHouse(url, pos, scale).then((root) => {
-					// Find a representative child mesh
-					let meshRef = null;
-					if (root && root.getChildren) {
-						const children = root.getChildren();
-						for (const c of children) {
-							if (typeof c.getBoundingInfo === "function") { meshRef = c; break; }
-						}
+				// Optionally load GLB asynchronously and replace the placeholder mesh when ready
+				if (USE_GLBS && HOUSE_MODELS.length > 0) {
+					const url = HOUSE_MODELS[Math.floor(rng() * HOUSE_MODELS.length)];
+					if (url) {
+						instantiateHouse(url, pos, scale).then((root) => {
+							// Find a representative child mesh
+							let meshRef = null;
+							if (root && root.getChildren) {
+								const children = root.getChildren();
+								for (const c of children) {
+									if (typeof c.getBoundingInfo === "function") { meshRef = c; break; }
+								}
+							}
+							if (!meshRef) {
+								// Fallback: keep placeholder if no child mesh found
+								return;
+							}
+							// Replace entry.mesh with GLB mesh and dispose placeholder
+							try {
+								entry.mesh = meshRef;
+								entry.aabb = meshRef.getBoundingInfo().boundingBox;
+								placeholder.dispose();
+							} catch (e) {
+								// In case dispose fails, just hide placeholder
+								placeholder.isVisible = false;
+							}
+						}).catch(() => {
+							// Keep placeholder on failure
+						});
 					}
-					if (!meshRef) {
-						// Fallback: keep placeholder if no child mesh found
-						return;
-					}
-					// Replace entry.mesh with GLB mesh and dispose placeholder
-					try {
-						entry.mesh = meshRef;
-						entry.aabb = meshRef.getBoundingInfo().boundingBox;
-						placeholder.dispose();
-					} catch (e) {
-						// In case dispose fails, just hide placeholder
-						placeholder.isVisible = false;
-					}
-				}).catch(() => {
-					// Keep placeholder on failure
-				});
+				}
 			}
 			if (totalHouses >= maxHouses) break;
 		}
@@ -363,9 +360,10 @@ export function placeHouses(scene, roads, options = {}) {
 
 function makeRoadMaterial(scene) {
 	const mat = new BABYLON.StandardMaterial("roadMat", scene);
-	mat.diffuseColor = new BABYLON.Color3(0.05, 0.05, 0.05);
+	mat.diffuseColor = new BABYLON.Color3(0.15, 0.15, 0.15); // Dark grey asphalt (was too dark at 0.05)
 	mat.specularColor = new BABYLON.Color3(0.02, 0.02, 0.02);
 	mat.emissiveColor = new BABYLON.Color3(0.0, 0.0, 0.0);
+	mat.backFaceCulling = true;
 	return mat;
 }
 
