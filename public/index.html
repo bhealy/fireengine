@@ -23,10 +23,32 @@
 				<p style="margin: 8px 0; font-size: 16px;">✊ <strong>Closed fist</strong> = Stop</p>
 				<p style="margin: 8px 0; font-size: 16px;">👈👉 <strong>Move hand left/right</strong> = Steer</p>
 			</div>
-			<p style="color: #666; font-size: 14px; margin-bottom: 30px;">
-				🔒 Your video never leaves your browser. Privacy guaranteed.
-			</p>
-			<button id="startGameBtn" style="background: #ff4444; color: white; border: none; 
+		<p style="color: #666; font-size: 14px; margin-bottom: 20px;">
+			🔒 Your video never leaves your browser. Privacy guaranteed.
+		</p>
+		
+		<!-- Volume Controls -->
+		<div style="background: #f8f8f8; padding: 20px; border-radius: 10px; margin-bottom: 30px; text-align: left;">
+			<h3 style="margin: 0 0 15px 0; color: #333; font-size: 16px;">🔊 Audio Settings</h3>
+			
+			<div style="margin-bottom: 15px;">
+				<label for="musicVolume" style="display: block; color: #555; font-size: 14px; margin-bottom: 5px;">
+					🎵 Background Music: <span id="musicVolumeValue">50</span>%
+				</label>
+				<input type="range" id="musicVolume" min="0" max="100" value="50" 
+				       style="width: 100%; cursor: pointer;">
+			</div>
+			
+			<div>
+				<label for="sfxVolume" style="display: block; color: #555; font-size: 14px; margin-bottom: 5px;">
+					🔔 Sound Effects: <span id="sfxVolumeValue">70</span>%
+				</label>
+				<input type="range" id="sfxVolume" min="0" max="100" value="70" 
+				       style="width: 100%; cursor: pointer;">
+			</div>
+		</div>
+		
+		<button id="startGameBtn" style="background: #ff4444; color: white; border: none;
 			                                    padding: 18px 40px; font-size: 20px; font-weight: bold; 
 			                                    border-radius: 50px; cursor: pointer; 
 			                                    box-shadow: 0 4px 15px rgba(255,68,68,0.4);

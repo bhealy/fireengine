@@ -6,6 +6,33 @@ import { createFlameManager } from "./game/flames.js";
 import { initHandTracking, startHandTraining, saveHandThresholds } from "./handControl.js";
 import { createFireSystem } from "./game/fireSystem.js";
 import { showStar } from "./game/ui.js";
+import { loadAudioSettings, saveAudioSettings } from "./audioSettings.js";
+
+// Initialize volume controls on home screen
+const musicVolumeSlider = document.getElementById('musicVolume');
+const musicVolumeValue = document.getElementById('musicVolumeValue');
+const sfxVolumeSlider = document.getElementById('sfxVolume');
+const sfxVolumeValue = document.getElementById('sfxVolumeValue');
+
+// Load saved settings
+const audioSettings = loadAudioSettings();
+musicVolumeSlider.value = audioSettings.musicVolume;
+musicVolumeValue.textContent = audioSettings.musicVolume;
+sfxVolumeSlider.value = audioSettings.sfxVolume;
+sfxVolumeValue.textContent = audioSettings.sfxVolume;
+
+// Update display and save when sliders change
+musicVolumeSlider.addEventListener('input', (e) => {
+	const value = e.target.value;
+	musicVolumeValue.textContent = value;
+	saveAudioSettings({ musicVolume: parseInt(value), sfxVolume: parseInt(sfxVolumeSlider.value) });
+});
+
+sfxVolumeSlider.addEventListener('input', (e) => {
+	const value = e.target.value;
+	sfxVolumeValue.textContent = value;
+	saveAudioSettings({ musicVolume: parseInt(musicVolumeSlider.value), sfxVolume: parseInt(value) });
+});
 
 // Wait for user to click start button before requesting camera
 const startBtn = document.getElementById("startGameBtn");
@@ -127,9 +154,18 @@ async function startGame() {
 		let droneWater = null; // Will be created after drone loads
 		let water = engineWater; // Active water system
 		
-		// Load celebration sound
+		// Load saved audio settings
+		const currentAudioSettings = loadAudioSettings();
+		
+		// Load celebration sound with user's SFX volume setting
 		const celebrationSound = new Audio('./mixkit-male-crowd-cheering-short-459.wav');
-		celebrationSound.volume = 0.7;
+		celebrationSound.volume = currentAudioSettings.sfxVolume / 100; // Convert percentage to 0-1
+		
+		// Load and play background music with user's music volume setting
+		const backgroundMusic = new Audio('./Oh When The Saints Jazz Band 2019.mp3');
+		backgroundMusic.volume = currentAudioSettings.musicVolume / 100; // Convert percentage to 0-1
+		backgroundMusic.loop = true; // Loop continuously
+		backgroundMusic.play().catch(err => console.warn('Background music autoplay failed:', err));
 
 		// Load animated drone and make it follow the fire engine
 		let drone = null;
@@ -415,14 +451,14 @@ async function startGame() {
 					let nearestDist = Infinity;
 					
 					houses.forEach(h => {
-						if (h.state === "burning" && flames.hasActiveFlames(h)) {
+						if (h.state === "burning") {
 							const toHouse = h.mesh.position.subtract(enginePos);
 							const dist = toHouse.length();
 							
 							// Check if house is in front of engine (dot product > 0)
 							const dotProduct = BABYLON.Vector3.Dot(toHouse.normalize(), engineForward);
 							
-							// Only consider houses in front (within 120 degree cone) with visible flames
+							// Only consider houses in front (within 120 degree cone), regardless of flame visibility
 							if (dotProduct > -0.5 && dist < nearestDist) {
 								nearestDist = dist;
 								nearest = h;
@@ -430,7 +466,7 @@ async function startGame() {
 						}
 					});
 					
-					// If fire with active flames found in front, dispatch drone once
+					// If fire found in front, dispatch drone once
 					if (nearest && drone && droneWater) {
 						game.mode = "FlyingToFire";
 						game.activeHouse = nearest;
@@ -625,14 +661,27 @@ async function startGame() {
 		await initHandTracking(video, {
 			onGesture: (g) => {
 				if (!g.present) {
-					// In firefight mode, no hand means stay in mode but don't move drone
-					if (game.mode === "Firefight") {
-						handIconEl.textContent = "❓";
-						handLabelEl.textContent = "No hand (Drone paused)";
-						game.currentGesture = { isOpen: false, isFist: false, posX: 0, posY: 0 };
-						return;
+					// No hand detected - immediately cancel all firefighting modes and return to driving
+					if (game.mode === "FlyingToFire" || game.mode === "Extinguishing") {
+						console.log('🚒 NO HAND DETECTED - CANCELLING FIREFIGHT');
+						// Turn off water if active
+						if (water && water !== engineWater) {
+							water.setActive(false);
+						}
+						water = engineWater;
+						// Scale drone back to normal
+						if (drone) {
+							drone.scaling.set(1, 1, 1);
+						}
+						// Reset game state
+						game.mode = "Driving";
+						hud.setMode("Driving");
+						hud.msg("No hand detected - firefight cancelled!");
+						game.activeHouse = null;
+						game.holdOnTarget = 0;
+						game.droneTargetPos = null;
 					}
-					// In driving mode, no hand = immediately stop turning and actively brake
+					// In all modes, no hand = immediately stop turning and actively brake
 					control.throttle = -1; // Negative throttle for active braking
 					control.steer = 0;     // Stop turning immediately
 					handIconEl.textContent = "✊";
@@ -657,27 +706,47 @@ async function startGame() {
 					label = "Open (Go)";
 				}
 				
-				// Show steering direction (flipped: left hand = right turn, right hand = left turn)
-				if (g.posX < -0.15) {
-					direction = " → RIGHT";
-				} else if (g.posX > 0.15) {
-					direction = " ← LEFT";
-				} else {
-					direction = " ↑ STRAIGHT";
-				}
+			// Show steering direction (flipped: left hand = right turn, right hand = left turn)
+			// Use same deadzone threshold as steering logic
+			if (g.posX < -0.20) {
+				direction = " → RIGHT";
+			} else if (g.posX > 0.20) {
+				direction = " ← LEFT";
+			} else {
+				direction = " ↑ STRAIGHT";
+			}
 				
 				handIconEl.textContent = icon;
 				handLabelEl.textContent = label + direction;
 				
-				if (game.mode === "Driving" || game.mode === "Stopped") {
-					// Open hand -> go forward, Fist -> stop
-					if (g.isOpen) control.throttle = 1.0;
-					if (g.isFist) control.throttle = 0.0;
-					// Hand position (left/right of center) controls steering
-					// posX ranges from -0.5 (left) to +0.5 (right)
-					// FLIPPED: negative posX (left hand) = positive steer (right turn)
-					const steerScale = 2.5; // multiplier for sensitivity
-					control.steer = Math.max(-1, Math.min(1, -g.posX * steerScale));
+			if (game.mode === "Driving" || game.mode === "Stopped") {
+				// Open hand -> go forward, Fist -> stop
+				// Hand position (left/right of center) controls steering
+				// posX ranges from -0.5 (left) to +0.5 (right)
+				// FLIPPED: negative posX (left hand) = positive steer (right turn)
+				
+				// Add deadzone in center to make driving straight easier
+				const deadzone = 0.20; // Hand must be 20% away from center to turn
+				const steerScale = 2.0; // Reduced from 2.5 for less sensitivity
+				
+				let adjustedPosX = g.posX;
+				if (Math.abs(g.posX) < deadzone) {
+					adjustedPosX = 0; // No steering in deadzone
+				} else {
+					// Scale the remaining range after deadzone
+					adjustedPosX = (Math.abs(g.posX) - deadzone) / (0.5 - deadzone) * Math.sign(g.posX);
+				}
+				
+				control.steer = Math.max(-1, Math.min(1, -adjustedPosX * steerScale));
+				
+				// Reduce throttle when turning - straight ahead = full speed, turning = reduced speed
+				const turnAmount = Math.abs(control.steer); // 0 (straight) to 1 (full turn)
+				const straightSpeedMultiplier = 1.0; // Full speed when straight
+				const turningSpeedMultiplier = 0.6; // 60% speed when turning hard
+				const speedMultiplier = straightSpeedMultiplier - (turnAmount * (straightSpeedMultiplier - turningSpeedMultiplier));
+				
+				if (g.isOpen) control.throttle = 1.0 * speedMultiplier;
+				if (g.isFist) control.throttle = 0.0;
 				} else if (game.mode === "Firefight") {
 					// Hose aiming: use absolute hand position for direct aiming
 					const aimScale = 1.5; // sensitivity multiplier

@@ -1,4 +1,6 @@
 // Fire engine mesh loading from .babylon file
+import { loadAudioSettings } from "../audioSettings.js";
+
 export async function createFireEngine(scene) {
 	const root = new BABYLON.TransformNode("fireEngineRoot", scene);
 
@@ -86,16 +88,20 @@ export async function createFireEngine(scene) {
 		fallback.parent = root;
 	}
 
+	// Load saved audio settings for sound effects
+	const audioSettings = loadAudioSettings();
+	const sfxVolume = audioSettings.sfxVolume / 100; // Convert percentage to 0-1
+
 	// Load brake sound (relative path for GitHub Pages)
 	const brakeSound = new Audio('./fast-car-braking-sound-effect-3-11000.mp3');
 	brakeSound.loop = false;
-	brakeSound.volume = 0.5;
+	brakeSound.volume = sfxVolume * 0.5; // 50% of user's SFX volume
 	let brakeSoundPlaying = false;
 
 	// Load siren sound (relative path for GitHub Pages)
 	const sirenSound = new Audio('./firetruck-78910.mp3');
 	sirenSound.loop = true;
-	sirenSound.volume = 0.6;
+	sirenSound.volume = sfxVolume * 0.6; // 60% of user's SFX volume
 	let sirenSoundPlaying = false;
 
 	// Hose/nozzle anchor (front bumper) - adjust position as needed based on actual model
