@@ -5,7 +5,6 @@ export async function createFireEngine(scene) {
 	// Load the fire engine model (relative path for GitHub Pages)
 	try {
 		const result = await BABYLON.SceneLoader.ImportMeshAsync("", "./", "low_poly_fire_truck.glb", scene);
-		console.log("Engine: import complete → meshes=", result.meshes?.length ?? 0, "transforms=", (result.transformNodes?.length ?? 0));
 		// Ensure the ENTIRE imported model follows `root` by re-parenting the unique
 		// top-most ancestors to `root` while preserving world transforms.
 		// We'll then move them under a `visual` node that can carry a fixed orientation offset.
@@ -31,7 +30,6 @@ export async function createFireEngine(scene) {
 				}
 				node.scaling.copyFrom(s);
 			} catch (e) {
-				console.log("Engine: reparentPreserveWorld failed for", node.name, e);
 				node.parent = newParent;
 			}
 		}
@@ -44,12 +42,9 @@ export async function createFireEngine(scene) {
 			const top = topAncestor(n);
 			if (top && top !== root) ancestors.set(top, true);
 		});
-		let reparented = 0;
 		ancestors.forEach((_, n) => {
 			reparentPreserveWorld(n, root);
-			reparented++;
 		});
-		console.log("Engine: reparented unique top ancestors →", reparented, " rootChildren=", root.getChildren()?.length ?? 0);
 		
 		// Create a visual container under root to allow a fixed orientation offset
 		const visual = new BABYLON.TransformNode("fireEngineVisual", scene);
@@ -80,45 +75,15 @@ export async function createFireEngine(scene) {
 				}
 			}
 		} catch (e) {
-			console.log("Engine: auto yaw offset detection failed:", e);
+			// Silent fail
 		}
 		visual.rotation.y = yawOffset;
-		console.log("Engine: orientation yaw offset (deg) =", (yawOffset * 180 / Math.PI).toFixed(1));
-		
-		// Add a simple marker under root so movement is always visible
-		try {
-			const marker = BABYLON.MeshBuilder.CreateSphere("engineMarker", { diameter: 1.0, segments: 8 }, scene);
-			const markerMat = new BABYLON.StandardMaterial("engineMarkerMat", scene);
-			markerMat.emissiveColor = new BABYLON.Color3(1, 0.2, 0.2);
-			markerMat.diffuseColor = new BABYLON.Color3(1, 0.2, 0.2);
-			marker.material = markerMat;
-			marker.parent = root;
-			marker.position.y = 2.0;
-			console.log("Engine: marker added at local (0,2,0)");
-		} catch (e) {
-			console.log("Engine: could not create marker", e);
-		}
-		console.log("Engine: Fire engine loaded and attached to root.");
 	} catch (err) {
-		console.error("Engine: Failed to load low_poly_fire_truck.glb:", err);
+		console.error("Failed to load low_poly_fire_truck.glb:", err);
 		// Fallback: create a simple box so game doesn't crash
 		const fallback = BABYLON.MeshBuilder.CreateBox("fe_fallback", { size: 2 }, scene);
 		fallback.material = makeMat(scene, new BABYLON.Color3(0.8, 0.1, 0.1));
 		fallback.parent = root;
-		console.log("Engine: Using fallback box mesh.");
-	}
-	// Add a visible marker so we can clearly see the engine moving
-	try {
-		const marker = BABYLON.MeshBuilder.CreateSphere("engineMarker", { diameter: 1.0, segments: 8 }, scene);
-		const markerMat = new BABYLON.StandardMaterial("engineMarkerMat", scene);
-		markerMat.emissiveColor = new BABYLON.Color3(1, 0.2, 0.2);
-		markerMat.diffuseColor = new BABYLON.Color3(1, 0.2, 0.2);
-		marker.material = markerMat;
-		marker.parent = root;
-		marker.position.y = 2.0;
-		console.log("Engine: marker added at local (0,2,0)");
-	} catch (e) {
-		console.log("Engine: could not create marker", e);
 	}
 
 	// Load brake sound (relative path for GitHub Pages)
@@ -193,7 +158,6 @@ export async function createFireEngine(scene) {
 					brakeSound.onended = () => { brakeSoundPlaying = false; };
 				}).catch(err => console.log('Brake sound play failed:', err));
 			}
-			console.log("Engine: braking start. speed=", motion.speed.toFixed(2), "target=", motion.targetSpeed.toFixed(2));
 		} else if (!isBrakingNow && motion.isBraking) {
 			// Stop braking
 			motion.isBraking = false;
@@ -201,7 +165,6 @@ export async function createFireEngine(scene) {
 				brakeSound.pause();
 				brakeSoundPlaying = false;
 			}
-			console.log("Engine: braking stop. speed=", motion.speed.toFixed(2), "target=", motion.targetSpeed.toFixed(2));
 		}
 
 		// Play siren when speed > 10
@@ -214,7 +177,6 @@ export async function createFireEngine(scene) {
 					sirenSoundPlaying = true;
 				}).catch(err => console.log('Siren sound play failed:', err));
 			}
-			console.log("Engine: siren start. speed=", motion.speed.toFixed(2));
 		} else if (!shouldPlaySiren && motion.sirenPlaying) {
 			// Stop siren
 			motion.sirenPlaying = false;
@@ -223,7 +185,6 @@ export async function createFireEngine(scene) {
 				sirenSound.currentTime = 0;
 				sirenSoundPlaying = false;
 			}
-			console.log("Engine: siren stop. speed=", motion.speed.toFixed(2));
 		}
 
 		// Heading change from steering (works even at low speeds)
@@ -239,22 +200,6 @@ export async function createFireEngine(scene) {
 		motion.position.addInPlace(moveAmount);
 		root.position.copyFrom(motion.position);
 		root.rotation.y = motion.heading;
-		
-		// Debug logging every 60 frames
-		motion.debugCounter++;
-		if (motion.debugCounter % 60 === 0) {
-			const abs = root.getAbsolutePosition();
-			console.log('Engine:', {
-				speed: motion.speed.toFixed(2),
-				targetSpeed: motion.targetSpeed.toFixed(2),
-				steer: motion.steer.toFixed(2),
-				'motion.position': `(${motion.position.x.toFixed(1)}, ${motion.position.z.toFixed(1)})`,
-				'root.position': `(${root.position.x.toFixed(1)}, ${root.position.z.toFixed(1)})`,
-				'root.absolutePosition': `(${abs.x.toFixed(1)}, ${abs.z.toFixed(1)})`,
-				moveAmount: moveAmount.length().toFixed(3),
-				heading: (motion.heading * 180 / Math.PI).toFixed(1) + '°'
-			});
-		}
 	}
 
 	return {

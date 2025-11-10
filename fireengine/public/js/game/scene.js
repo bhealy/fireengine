@@ -50,7 +50,7 @@ export function makeFollowCamera(scene, targetMesh) {
 	cam.targetMesh = targetMesh;
 	
 	// Custom update function to keep fire engine centered
-	cam.updateChaseCam = function() {
+	cam.updateChaseCam = function(sideRotationOffset = 0) {
 		// Get the fire engine's position and rotation
 		const enginePos = this.targetMesh.position.clone();
 		const engineHeading = this.targetMesh.rotation.y;
@@ -60,9 +60,10 @@ export function makeFollowCamera(scene, targetMesh) {
 		const height = 12; // height above
 		
 		// Calculate camera position directly behind the engine
-		// This rotates with the engine so it's always centered
-		const offsetX = -Math.sin(engineHeading) * distance;
-		const offsetZ = -Math.cos(engineHeading) * distance;
+		// Add optional side rotation for firefighting mode (0 to PI/4 for 45°)
+		const cameraAngle = engineHeading + sideRotationOffset;
+		const offsetX = -Math.sin(cameraAngle) * distance;
+		const offsetZ = -Math.cos(cameraAngle) * distance;
 		
 		// Set camera position (no lerp - instant follow for centering)
 		this.position.x = enginePos.x + offsetX;

@@ -32,39 +32,57 @@ export async function initHandTracking(videoEl, { onGesture } = {}) {
 		for (const p of lm) { cx += p.x; cy += p.y; }
 		cx /= lm.length; cy /= lm.length;
 
-		// openness metric: average distance from wrist to fingertips normalized by hand size
-		const wrist = lm[0];
-		const tips = [lm[4], lm[8], lm[12], lm[16], lm[20]];
-		const bbox = bounds(lm);
-		const size = Math.hypot(bbox.w, bbox.h) + 1e-6;
-		let sum = 0;
-		for (const t of tips) sum += Math.hypot(t.x - wrist.x, t.y - wrist.y);
-		const openScore = (sum / tips.length) / size;
-
-		// Adjusted thresholds for better gesture detection
-		// Use hysteresis to prevent flickering but be more responsive
-		const openThresh = 0.38;  // Lowered from 0.40 for easier open detection
-		const fistThresh = 0.30;  // Lowered from 0.32 for clearer fist
+		// Better fist detection: compare fingertips to knuckles (base of fingers)
+		// If fingertips are close to knuckles, hand is closed (fist)
+		// If fingertips are far from knuckles, hand is open
 		
-		// Update state immediately based on current score (no dead zone)
-		if (openScore >= openThresh) {
+		// Landmarks: 0=wrist, 4=thumb_tip, 8=index_tip, 12=middle_tip, 16=ring_tip, 20=pinky_tip
+		//            2=thumb_knuckle, 5=index_knuckle, 9=middle_knuckle, 13=ring_knuckle, 17=pinky_knuckle
+		const fingerPairs = [
+			{ tip: lm[8], knuckle: lm[5], name: 'index' },    // Index finger
+			{ tip: lm[12], knuckle: lm[9], name: 'middle' },  // Middle finger
+			{ tip: lm[16], knuckle: lm[13], name: 'ring' },   // Ring finger
+			{ tip: lm[20], knuckle: lm[17], name: 'pinky' }   // Pinky
+		];
+		
+		// Calculate how curled each finger is (distance from tip to knuckle)
+		const curlDistances = fingerPairs.map(pair => 
+			Math.hypot(pair.tip.x - pair.knuckle.x, pair.tip.y - pair.knuckle.y)
+		);
+		
+		// Average curl distance - smaller = more curled (fist), larger = extended (open)
+		const avgCurl = curlDistances.reduce((a, b) => a + b, 0) / curlDistances.length;
+		
+		// Normalize by hand size
+		const bbox = bounds(lm);
+		const handSize = Math.hypot(bbox.w, bbox.h) + 1e-6;
+		const curlScore = avgCurl / handSize;
+		
+		// Thresholds: when fingers are curled close to knuckles, curlScore is LOW
+		const openCurlThresh = 0.25;  // Above this = open hand
+		const fistCurlThresh = 0.15;  // Below this = fist
+		
+		// Detect gesture
+		if (curlScore >= openCurlThresh) {
 			state.isOpen = true; 
 			state.isFist = false;
-		} else if (openScore <= fistThresh) {
+		} else if (curlScore <= fistCurlThresh) {
 			state.isOpen = false; 
 			state.isFist = true;
 		} else {
-			// In the middle zone - favor "open" for better responsiveness
-			state.isOpen = true;
-			state.isFist = false;
+			// Middle zone - keep previous state for stability
+			// Don't change
 		}
 		
-		// Log openScore occasionally for debugging
-		if (Math.random() < 0.02) {
-			console.log('Hand openness score:', openScore.toFixed(3), 
-			           '(open >' + openThresh + ', fist <' + fistThresh + ')',
-			           'state:', state.isOpen ? 'OPEN' : (state.isFist ? 'FIST' : 'MIDDLE'));
-		}
+		// FIST DEBUG: Log every frame to understand the values
+		console.log('FIST:', {
+			curlScore: curlScore.toFixed(3),
+			openCurlThresh: openCurlThresh,
+			fistCurlThresh: fistCurlThresh,
+			detectedState: state.isOpen ? 'OPEN' : (state.isFist ? 'FIST' : 'MIDDLE'),
+			fingerCurls: curlDistances.map((d, i) => `${fingerPairs[i].name}:${d.toFixed(3)}`).join(', '),
+			handSize: handSize.toFixed(3)
+		});
 
 		// motion deltas (positive dx -> move right)
 		let dx = 0, dy = 0;

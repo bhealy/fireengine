@@ -4,15 +4,8 @@ export function createFlameManager(scene) {
 	let burningHouses = new Map(); // Map of house.mesh.id -> { house, particleSystems[], hasVisuals }
 	
 	function showOn(house) {
-		if (!house || !house.mesh) { 
-			console.log("🔥 Flames: No house or mesh provided");
-			return; 
-		}
-		
-		// Don't reapply if already on fire
-		if (burningHouses.has(house.mesh.id)) {
-			return;
-		}
+		if (!house || !house.mesh) return;
+		if (burningHouses.has(house.mesh.id)) return;
 		
 		// Mark as burning but don't create visuals yet (lazy loading for performance)
 		burningHouses.set(house.mesh.id, { house, particleSystems: [], hasVisuals: false });
@@ -153,7 +146,6 @@ export function createFlameManager(scene) {
 			});
 		});
 		burningHouses.clear();
-		console.log("🔥 Flames: All fires extinguished");
 	}
 	
 	function hideHouse(house) {
@@ -167,7 +159,6 @@ export function createFlameManager(scene) {
 				destroyVisualsForHouse(entry);
 			}
 			burningHouses.delete(house.mesh.id);
-			console.log(`🔥 Flames: Extinguished fire on house ${house.mesh.id}. Remaining fires: ${burningHouses.size}`);
 		}
 	}
 	
@@ -175,7 +166,25 @@ export function createFlameManager(scene) {
 		return burningHouses.size;
 	}
 	
-	return { showOn, hide, hideHouse, update, getCount };
+	function reduceIntensity(house, intensity) {
+		// Reduce fire intensity (0 = no fire, 1 = full fire)
+		// intensity should be 0-1
+		if (!house || !house.mesh) return;
+		
+		const entry = burningHouses.get(house.mesh.id);
+		if (!entry || !entry.hasVisuals) return;
+		
+		// Adjust emission rate and particle size based on intensity
+		entry.particleSystems.forEach(ps => {
+			if (ps) {
+				ps.emitRate = 800 * intensity; // Scale from 0 to 800
+				ps.minSize = 0.5 * intensity;
+				ps.maxSize = 2.0 * intensity;
+			}
+		});
+	}
+	
+	return { showOn, hide, hideHouse, update, getCount, reduceIntensity };
 }
 
 

@@ -20,8 +20,6 @@ startBtn.addEventListener("mouseleave", () => {
 async function startGame() {
 	startBtn.disabled = true;
 	startBtn.textContent = "Loading...";
-	const t0 = performance.now();
-	console.log("🚀 Starting game...");
 
 	const canvas = document.getElementById("renderCanvas");
 	if (!canvas) {
@@ -30,25 +28,13 @@ async function startGame() {
 	}
 
 	try {
-		const t1 = performance.now();
-		console.log("📦 Creating scene...");
 		const { scene } = createScene(canvas);
-		console.log(`   ⏱️  Scene created in ${(performance.now() - t1).toFixed(0)}ms`);
 		
 		// Procedural world
-		const t2 = performance.now();
-		console.log("🛣️  Generating roads...");
 		const { roads, isPointOnAnyRoad } = generateRoads(scene, {});
-		console.log(`   ⏱️  Roads generated in ${(performance.now() - t2).toFixed(0)}ms`);
-		
-		const t3 = performance.now();
-		console.log("🏘️  Placing houses...");
 		const { houses } = placeHouses(scene, roads, {});
-		console.log(`   ⏱️  Houses placed in ${(performance.now() - t3).toFixed(0)}ms (${houses.length} houses)`);
 
 		// Fire system
-		const t4 = performance.now();
-		console.log("🔥 Creating fire system...");
 		const flames = createFlameManager(scene);
 		const fire = createFireSystem(scene, houses, {
 			onStart: (h) => flames.showOn(h),
@@ -56,7 +42,6 @@ async function startGame() {
 		});
 		
 		// Start with 200 random buildings on fire
-		console.log("🔥 Starting 200 initial fires...");
 		const normalHouses = houses.filter(h => h.state === "normal");
 		const initialFireCount = Math.min(200, normalHouses.length);
 		for (let i = 0; i < initialFireCount; i++) {
@@ -66,16 +51,11 @@ async function startGame() {
 				fire.startFlame(house);
 			}
 		}
-		console.log(`   🔥 Started ${initialFireCount} fires`);
 		
 		fire.igniteRandomLater();
-		console.log(`   ⏱️  Fire system created in ${(performance.now() - t4).toFixed(0)}ms`);
 
 		// Fire engine + camera follow (async load)
-		const t5 = performance.now();
-		console.log("🚒 Loading fire engine model...");
 		const fe = await createFireEngine(scene);
-		console.log(`   ⏱️  Fire engine loaded in ${(performance.now() - t5).toFixed(0)}ms`);
 		const cam = makeFollowCamera(scene, fe.root);
 		scene.activeCamera = cam;
 		cam.attachControl(canvas, true);
@@ -88,10 +68,13 @@ async function startGame() {
 
 		// Game HUD and mode
 		const game = {
-			mode: "Driving", // Driving | Firefight
+			mode: "Driving", // Driving | Stopped | Firefight
 			score: 0,
 			activeHouse: null,
-			holdOnTarget: 0
+			holdOnTarget: 0,
+			rotationProgress: 0, // 0 to 1 for 45 degree rotation animation
+			openHandTimer: 0, // Track how long open hand is held in firefight mode
+			nearestBurningHouse: null
 		};
 		let aim = { yaw: 0, pitch: BABYLON.Tools.ToRadians(10) };
 		const hud = {
@@ -180,8 +163,9 @@ async function startGame() {
 
 			fe.update(dt);
 			
-			// Update camera to follow behind fire engine
-			cam.updateChaseCam();
+			// Update camera to follow behind fire engine (with optional side rotation)
+			const sideViewRotation = game.mode === "Stopped" || game.mode === "Firefight" ? game.rotationProgress : 0;
+			cam.updateChaseCam(sideViewRotation);
 			
 			// Update flames manager - create/destroy particle systems based on proximity
 			flames.update(fe.motion.position);
@@ -195,64 +179,137 @@ async function startGame() {
 			speedNeedleEl.setAttribute('transform', `rotate(${needleAngle} 70 80)`);
 			speedValueEl.textContent = Math.round(speed);
 			
-			// Debug logging every 60 frames (~1 second)
-			debugFrameCount++;
-			if (debugFrameCount % 60 === 0) {
-				console.log('🎮 Controls:', {
-					throttle: control.throttle.toFixed(2),
-					steer: control.steer.toFixed(2),
-					targetSpeed: fe.motion.targetSpeed.toFixed(2),
-					actualSpeed: fe.motion.speed.toFixed(2),
-					position: `(${fe.motion.position.x.toFixed(1)}, ${fe.motion.position.z.toFixed(1)})`,
-					heading: (fe.motion.heading * 180 / Math.PI).toFixed(1) + '°'
-				});
-			}
 
 			// If off-road, apply heavy drag
 			if (!isPointOnAnyRoad(fe.motion.position)) {
 				fe.motion.targetSpeed = Math.max(0, fe.motion.targetSpeed - 12 * dt);
 			}
 
-			// Proximity gate to enter Firefighting mode
+			// State machine for fire engine modes
+			
+			// DRIVING MODE: Moving around
 			if (game.mode === "Driving") {
-				const burning = fire.currentFire && fire.currentFire();
-				if (burning && burning.state === "burning") {
-					const dist = BABYLON.Vector3.Distance(fe.motion.position, burning.mesh.position);
-					if (dist < 10 && fe.motion.speed < 0.5 && isPointOnAnyRoad(fe.motion.position)) {
-						game.mode = "Firefight";
-						game.activeHouse = burning;
-						hud.setMode("Firefight");
-						hud.msg("Aim the hose with your hand (left/right/up/down). Keep water on flames for 5s.");
-						// Stop the engine
-						control.throttle = 0;
-						fe.motion.targetSpeed = 0;
-						aim = { yaw: 0, pitch: BABYLON.Tools.ToRadians(10) };
-						water.setAngles(aim.yaw, aim.pitch);
-						water.setActive(true);
+				// When we make a fist (brake) and come to a stop, enter STOPPED mode
+				const isStopped = fe.motion.speed === 0;
+				const isBraking = control.throttle < 0;
+				
+				console.log('MODE CHECK:', {
+					mode: game.mode,
+					speed: fe.motion.speed.toFixed(2),
+					throttle: control.throttle.toFixed(2),
+					isStopped: isStopped,
+					isBraking: isBraking,
+					condition: isBraking && isStopped
+				});
+				
+				if (isBraking && isStopped) {
+					// Find nearest burning house (no proximity check)
+					let nearest = null;
+					let nearestDist = Infinity;
+					let burningCount = 0;
+					houses.forEach(h => {
+						if (h.state === "burning") {
+							burningCount++;
+							const dist = BABYLON.Vector3.Distance(fe.motion.position, h.mesh.position);
+							if (dist < nearestDist) {
+								nearestDist = dist;
+								nearest = h;
+							}
+						}
+					});
+					
+					console.log('FIREFIGHT CHECK:', {
+						burningCount: burningCount,
+						nearestDist: nearestDist.toFixed(1),
+						hasNearest: !!nearest
+					});
+					
+					if (nearest) {
+						console.log('🚒 ENTERING STOPPED MODE');
+						game.mode = "Stopped";
+						game.nearestBurningHouse = nearest;
+						game.rotationProgress = 0;
+						hud.setMode("Stopped - Rotating");
+						hud.msg("Preparing water cannon...");
 					}
 				}
 			}
-
-			// Firefight loop: check hit and hold timing
-			if (game.mode === "Firefight" && game.activeHouse) {
+			
+			// STOPPED MODE: Rotating 45 degrees to show side view
+			else if (game.mode === "Stopped") {
+				// Gradually rotate the camera 45 degrees to the right
+				const rotationSpeed = 0.5; // radians per second
+				game.rotationProgress += rotationSpeed * dt;
+				
+				// Limit to 45 degrees (PI/4 radians)
+				const targetRotation = Math.PI / 4;
+				if (game.rotationProgress >= targetRotation) {
+					game.rotationProgress = targetRotation;
+					// Rotation complete - enter firefight mode
+					game.mode = "Firefight";
+					game.activeHouse = game.nearestBurningHouse;
+					hud.setMode("Firefight");
+					hud.msg("Move your hand to aim the water. Keep it on the fire for 3s!");
+					aim = { yaw: 0, pitch: BABYLON.Tools.ToRadians(10) };
+					water.setAngles(aim.yaw, aim.pitch);
+					water.setActive(true);
+					game.holdOnTarget = 0;
+					game.openHandTimer = 0;
+				}
+			}
+			
+			// FIREFIGHT MODE: Aiming water at the fire
+			else if (game.mode === "Firefight" && game.activeHouse) {
 				const h = game.activeHouse;
+				
+				// Open hand immediately exits firefight mode
+				if (control.throttle > 0) { // Open hand detected
+					game.mode = "Driving";
+					game.rotationProgress = 0;
+					hud.setMode("Driving");
+					hud.msg("Firefight cancelled - building still burning!");
+					water.setActive(false);
+					game.activeHouse = null;
+					game.holdOnTarget = 0;
+					game.openHandTimer = 0;
+					return; // Skip rest of firefight logic
+				}
+				
 				if (h.state === "burning") {
-					if (water.isHittingHouse(h)) {
+					// Check if water is hitting the house
+					const isHitting = water.isHittingHouse(h);
+					
+					if (isHitting) {
 						game.holdOnTarget += dt;
-						hud.msg(`Hold steady... ${Math.max(0, (5 - game.holdOnTarget)).toFixed(1)}s`);
-						if (game.holdOnTarget >= 5) {
+						
+						// Gradually reduce fire intensity as we douse it
+						const progress = Math.min(1, game.holdOnTarget / 3);
+						const fireIntensity = 1 - progress; // 1.0 down to 0.0
+						flames.reduceIntensity(h, fireIntensity);
+						
+						hud.msg(`Extinguishing... ${Math.max(0, (3 - game.holdOnTarget)).toFixed(1)}s (${Math.round(progress * 100)}%)`);
+						
+						if (game.holdOnTarget >= 3) {
+							// Fire extinguished!
 							fire.extinguish(h);
 							game.score += 100;
 							hud.setScore(game.score);
 							hud.msg("Fire out! +100 points.");
 							showStar(scene, fe.root, 10);
+							// Exit firefight mode
 							game.mode = "Driving";
+							game.rotationProgress = 0;
 							hud.setMode("Driving");
 							water.setActive(false);
 							game.activeHouse = null;
 							game.holdOnTarget = 0;
+							game.openHandTimer = 0;
 						}
 					} else {
+						// Not hitting - reset progress and restore full fire intensity
+						if (game.holdOnTarget > 0) {
+							flames.reduceIntensity(h, 1.0); // Restore full fire
+						}
 						game.holdOnTarget = 0;
 					}
 				}
@@ -263,10 +320,7 @@ async function startGame() {
 		window.__GAME__ = { scene, roads, houses, isPointOnAnyRoad, fe, control, game, hud, fire, water };
 
 		// MediaPipe init + gesture mapping
-		const t6 = performance.now();
-		console.log("📹 Requesting camera access...");
 		const video = document.getElementById("inputVideo");
-		let gestureDebugCount = 0;
 		const handIconEl = document.getElementById("handIcon");
 		const handLabelEl = document.getElementById("handLabel");
 		
@@ -306,18 +360,7 @@ async function startGame() {
 				handIconEl.textContent = icon;
 				handLabelEl.textContent = label + direction;
 				
-				// Debug gesture detection every 30 calls (~0.5s)
-				gestureDebugCount++;
-				if (gestureDebugCount % 30 === 0) {
-					console.log('👋 Gesture:', {
-						isOpen: g.isOpen,
-						isFist: g.isFist,
-						posX: g.posX?.toFixed(2),
-						posY: g.posY?.toFixed(2)
-					});
-				}
-				
-				if (game.mode === "Driving") {
+				if (game.mode === "Driving" || game.mode === "Stopped") {
 					// Open hand -> go forward, Fist -> stop
 					if (g.isOpen) control.throttle = 1.0;
 					if (g.isFist) control.throttle = 0.0;
@@ -327,22 +370,17 @@ async function startGame() {
 					const steerScale = 2.5; // multiplier for sensitivity
 					control.steer = Math.max(-1, Math.min(1, -g.posX * steerScale));
 				} else if (game.mode === "Firefight") {
-					// Hose aiming: accumulate yaw/pitch deltas from hand motion
-					const aimScale = 2.0; // radians per normalized unit
-					aim.yaw += g.dx * aimScale;
-					aim.pitch -= g.dy * aimScale;
+					// Hose aiming: use absolute hand position for direct aiming
+					const aimScale = 1.5; // sensitivity multiplier
+					aim.yaw = g.posX * aimScale; // -0.5 to +0.5 -> left/right
+					aim.pitch = BABYLON.Tools.ToRadians(10) - (g.posY * aimScale); // up/down
 					water.setAngles(aim.yaw, aim.pitch);
 				}
 			}
 		});
 
-		console.log(`   ⏱️  Camera initialized in ${(performance.now() - t6).toFixed(0)}ms`);
-		
 		// Hide splash and show game
 		document.getElementById("cameraPrompt").style.display = "none";
-		
-		const totalTime = performance.now() - t0;
-		console.log(`\n✅ Game started successfully! Total load time: ${totalTime.toFixed(0)}ms (${(totalTime/1000).toFixed(2)}s)\n`);
 
 	} catch (err) {
 		// Camera permission denied - show detailed help
