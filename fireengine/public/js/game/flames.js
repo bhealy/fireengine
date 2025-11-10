@@ -184,7 +184,14 @@ export function createFlameManager(scene) {
 		});
 	}
 	
-	return { showOn, hide, hideHouse, update, getCount, reduceIntensity };
+	function hasActiveFlames(house) {
+		// Check if this house has active flames (particle systems loaded)
+		if (!house || !house.mesh) return false;
+		const entry = burningHouses.get(house.mesh.id);
+		return entry && entry.hasVisuals;
+	}
+	
+	return { showOn, hide, hideHouse, update, getCount, reduceIntensity, hasActiveFlames };
 }
 
 

@@ -1,6 +1,6 @@
 // UI helpers: star celebration
 export function showStar(scene, targetNode, durationSec = 10) {
-	const mat = new BABYLON.StandardMaterial("starMat", scene);
+	const mat = new BABYLON.StandardMaterial("starMat_" + Math.random(), scene);
 	mat.emissiveColor = new BABYLON.Color3(1, 0.9, 0.2);
 	mat.diffuseColor = new BABYLON.Color3(1, 0.85, 0.1);
 	mat.specularColor = new BABYLON.Color3(0.2, 0.2, 0.2);
@@ -11,17 +11,31 @@ export function showStar(scene, targetNode, durationSec = 10) {
 	star.parent = targetNode;
 	star.position = new BABYLON.Vector3(0, 3.5, 0);
 
-	// Flash animation
-	const anim = new BABYLON.Animation("starFlash", "material.emissiveColor", 30, BABYLON.Animation.ANIMATIONTYPE_COLOR3, BABYLON.Animation.ANIMATIONLOOPMODE_CYCLE);
-	const keys = [];
+	// Flash animation for emissive color
+	const flashAnim = new BABYLON.Animation("starFlash", "material.emissiveColor", 30, BABYLON.Animation.ANIMATIONTYPE_COLOR3, BABYLON.Animation.ANIMATIONLOOPMODE_CYCLE);
+	const flashKeys = [];
 	for (let i = 0; i <= 30; i++) {
 		const t = i / 30;
 		const k = 0.6 + 0.4 * Math.sin(t * Math.PI * 2);
-		keys.push({ frame: i, value: new BABYLON.Color3(1 * k, 0.9 * k, 0.2 * k) });
+		flashKeys.push({ frame: i, value: new BABYLON.Color3(1 * k, 0.9 * k, 0.2 * k) });
 	}
-	anim.setKeys(keys);
-	star.animations = [anim];
+	flashAnim.setKeys(flashKeys);
+	
+	// Rotation animation around Y axis
+	const rotAnim = new BABYLON.Animation("starRotate", "rotation.y", 30, BABYLON.Animation.ANIMATIONTYPE_FLOAT, BABYLON.Animation.ANIMATIONLOOPMODE_CYCLE);
+	const rotKeys = [
+		{ frame: 0, value: 0 },
+		{ frame: 30, value: Math.PI * 2 }
+	];
+	rotAnim.setKeys(rotKeys);
+	
+	star.animations = [flashAnim, rotAnim];
 	scene.beginAnimation(star, 0, 30, true);
+
+	// If duration is Infinity, never remove the star
+	if (durationSec === Infinity) {
+		return Promise.resolve();
+	}
 
 	return new Promise((resolve) => {
 		setTimeout(() => {

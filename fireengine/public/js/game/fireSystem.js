@@ -182,15 +182,16 @@ function createDroneWaterSystem(scene, droneNode) {
 	}
 	ps.particleTexture = new BABYLON.Texture("https://assets.babylonjs.com/textures/flare.png", scene);
 	ps.emitter = emitter;
-	ps.minSize = 0.08; ps.maxSize = 0.15;
-	ps.minLifeTime = 0.5; ps.maxLifeTime = 1.0;
-	ps.emitRate = 1500;
-	ps.color1 = new BABYLON.Color4(0.7, 0.8, 1.0, 0.9);
-	ps.color2 = new BABYLON.Color4(0.6, 0.7, 1.0, 0.8);
-	ps.colorDead = new BABYLON.Color4(0.6, 0.7, 1.0, 0.0);
-	ps.gravity = new BABYLON.Vector3(0, -3, 0);
-	ps.minEmitPower = 1; ps.maxEmitPower = 3;
-	ps.updateSpeed = 0.015;
+	ps.minSize = 0.2; ps.maxSize = 0.4; // Larger particles for visibility
+	ps.minLifeTime = 1.0; ps.maxLifeTime = 2.0; // Longer lifetime
+	ps.emitRate = 2000; // More particles
+	ps.color1 = new BABYLON.Color4(0.3, 0.6, 1.0, 1.0); // Bright blue
+	ps.color2 = new BABYLON.Color4(0.2, 0.5, 0.9, 0.9); // Medium blue
+	ps.colorDead = new BABYLON.Color4(0.4, 0.7, 1.0, 0.0); // Light blue fade
+	ps.gravity = new BABYLON.Vector3(0, -5, 0); // Stronger gravity
+	ps.minEmitPower = 2; ps.maxEmitPower = 4; // More spread
+	ps.updateSpeed = 0.02; // Faster updates
+	ps.blendMode = BABYLON.ParticleSystem.BLENDMODE_ONEONE; // Additive blending for brighter colors
 
 	// Water falls straight down
 	ps.direction1 = new BABYLON.Vector3(-0.3, -1, -0.3);

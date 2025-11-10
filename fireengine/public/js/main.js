@@ -122,9 +122,18 @@ async function startGame() {
 		scene.activeCamera = cam;
 		cam.attachControl(canvas, true);
 
-			// Load animated drone and make it follow the fire engine
-			let drone = null;
-			let droneTime = 0; // seconds for figure-eight motion
+		// Water system - create engine water, drone water will be created after drone loads
+		const engineWater = fire.createWater(fe.nozzle);
+		let droneWater = null; // Will be created after drone loads
+		let water = engineWater; // Active water system
+		
+		// Load celebration sound
+		const celebrationSound = new Audio('./mixkit-male-crowd-cheering-short-459.wav');
+		celebrationSound.volume = 0.7;
+
+		// Load animated drone and make it follow the fire engine
+		let drone = null;
+		let droneTime = 0; // seconds for figure-eight motion
 			try {
 				await new Promise((resolve, reject) => {
 					BABYLON.SceneLoader.ImportMesh(
@@ -133,22 +142,37 @@ async function startGame() {
 						"38_Aircraft.glb",
 						scene,
 						(meshes, _ps, _skeletons, animationGroups) => {
-						// Find a sensible root for the drone
-						const root = meshes.find(m => !m.parent) || meshes[0];
-						if (!root) return resolve(); // nothing to do
-						drone = root;
-						// Scale and initial position above ground
-						drone.scaling.set(1, 1, 1);
-						drone.position = fe.root.position.add(new BABYLON.Vector3(0, 12, -10));
-						// Ensure we can control orientation via Euler angles
-						drone.rotationQuaternion = null;
-						// Start all animations if any
-						if (animationGroups && animationGroups.length) {
-							animationGroups.forEach(ag => ag.start(true));
-						}
-						// Create drone water system now that drone is loaded
-						droneWater = fire.createDroneWater(drone);
-						resolve();
+					// Find a sensible root for the drone
+					const root = meshes.find(m => !m.parent) || meshes[0];
+					if (!root) return resolve(); // nothing to do
+					drone = root;
+					// Scale and initial position above ground
+					drone.scaling.set(1, 1, 1);
+					drone.position = fe.root.position.add(new BABYLON.Vector3(0, 12, -10));
+				// Ensure we can control orientation via Euler angles
+				drone.rotationQuaternion = null;
+				
+				// Add shadow for the drone (commented out for performance)
+				// const shadowGenerator = new BABYLON.ShadowGenerator(1024, scene.lights.find(l => l.name === "dir") || scene.lights[0]);
+				// shadowGenerator.useBlurExponentialShadowMap = true;
+				// shadowGenerator.blurKernel = 32;
+				// meshes.forEach(m => {
+				// 	if (m.material) {
+				// 		shadowGenerator.addShadowCaster(m);
+				// 	}
+				// });
+				// // Make ground receive shadows
+				// if (scene.getMeshByName("ground")) {
+				// 	scene.getMeshByName("ground").receiveShadows = true;
+				// }
+				
+				// Start all animations if any
+					if (animationGroups && animationGroups.length) {
+						animationGroups.forEach(ag => ag.start(true));
+					}
+					// Create drone water system now that drone is loaded
+					droneWater = fire.createDroneWater(drone);
+					resolve();
 						},
 						null,
 						(_scene, message, _ex) => reject(new Error(message))
@@ -166,15 +190,19 @@ async function startGame() {
 
 		// Game HUD and mode
 		const game = {
-			mode: "Driving", // Driving | Stopped | Firefight
+			mode: "Driving", // Driving | FlyingToFire | Extinguishing
 			score: 0,
 			activeHouse: null,
 			holdOnTarget: 0,
-			rotationProgress: 0, // 0 to 1 for 45 degree rotation animation
-			openHandTimer: 0, // Track how long open hand is held in firefight mode
+			rotationProgress: 0,
+			openHandTimer: 0,
 			nearestBurningHouse: null,
-			currentGesture: { isOpen: false, isFist: false, posX: 0, posY: 0 }, // Track current hand state
-			droneTargetPos: null // Target position for drone in firefight mode
+			currentGesture: { isOpen: false, isFist: false, posX: 0, posY: 0 },
+			droneTargetPos: null,
+			droneAutoFlyTimer: 0,
+			hasDispatchedDrone: false, // Tracks if drone has been dispatched during current stop
+			cameraOrbitAngle: 0, // Angle for orbiting camera during extinguishing
+			hasExceeded10MPH: false // Must reach 10 mph before drone firefighting is enabled
 		};
 		let aim = { yaw: 0, pitch: BABYLON.Tools.ToRadians(10) };
 		const hud = {
@@ -219,10 +247,7 @@ async function startGame() {
 			}
 		});
 
-		// Water system - create both engine and drone water systems
-		const engineWater = fire.createWater(fe.nozzle);
-		let droneWater = null; // Will be created after drone loads
-		let water = engineWater; // Active water system
+		// Fire system destroyed callback
 		fire.onDestroyed((h) => {
 			// Deduct points on failure
 			game.score = Math.max(0, game.score - 50);
@@ -265,12 +290,47 @@ async function startGame() {
 
 			fe.update(dt);
 			
-			// Update camera to follow behind fire engine (with optional side rotation)
-			const sideViewRotation = game.mode === "Stopped" || game.mode === "Firefight" ? game.rotationProgress : 0;
-			cam.updateChaseCam(sideViewRotation);
+			// Update camera behavior based on mode
+			if (game.mode === "FlyingToFire") {
+				// Camera stays with engine while drone flies to fire
+				const sideViewRotation = 0;
+				cam.updateChaseCam(sideViewRotation);
+			} else if (game.mode === "Extinguishing") {
+				// Camera orbits around the building during extinguishing
+				if (game.activeHouse && drone) {
+					const buildingPos = game.activeHouse.mesh.position;
+					
+					// Orbit parameters
+					const orbitRadius = 20; // Distance from building
+					const orbitHeight = 12; // Height above building
+					const orbitSpeed = 0.3; // Radians per second (slow orbit)
+					
+					// Increment orbit angle
+					game.cameraOrbitAngle += orbitSpeed * dt;
+					
+					// Calculate camera position on orbit
+					const camX = buildingPos.x + Math.cos(game.cameraOrbitAngle) * orbitRadius;
+					const camZ = buildingPos.z + Math.sin(game.cameraOrbitAngle) * orbitRadius;
+					const camY = buildingPos.y + orbitHeight;
+					
+					const orbitPos = new BABYLON.Vector3(camX, camY, camZ);
+					
+					// Smoothly move camera to orbit position
+					const camLerp = 1 - Math.exp(-3 * dt);
+					cam.position = BABYLON.Vector3.Lerp(cam.position, orbitPos, camLerp);
+					
+					// Always look at the building center (slightly elevated to see drone above)
+					const lookAtPos = buildingPos.add(new BABYLON.Vector3(0, 8, 0));
+					cam.setTarget(lookAtPos);
+				}
+			} else {
+				// Normal follow camera for driving mode
+				const sideViewRotation = 0;
+				cam.updateChaseCam(sideViewRotation);
+			}
 			
-			// Update drone - figure-eight in driving mode, manual control in firefight
-			if (drone && game.mode !== "Firefight") {
+			// Update drone - figure-eight only in driving mode when not on a mission
+			if (drone && game.mode === "Driving" && fe.motion.speed > 0) {
 				const enginePos = fe.motion.position;
 				const heading = fe.root.rotation.y;
 				// Parametric figure-eight (lemniscate-like) around the engine in local space
@@ -294,12 +354,21 @@ async function startGame() {
 					enginePos.y + baseHeight + bob,
 					enginePos.z + zWorld
 				);
+				// Store previous position to calculate direction
+				const prevPos = drone.position.clone();
 				// Smoothly move toward target
 				const lerp = 1 - Math.exp(-4 * dt); // time-constant smoothing
 				drone.position = BABYLON.Vector3.Lerp(drone.position, targetPos, lerp);
-				// Align drone heading with engine heading
+				
+				// Rotate drone to face direction of travel
+				const velocity = drone.position.subtract(prevPos);
+				if (velocity.length() > 0.001) { // Only rotate if moving
+					const targetHeading = Math.atan2(velocity.x, velocity.z);
+					// Smoothly interpolate rotation
+					const rotLerp = 1 - Math.exp(-5 * dt);
+					drone.rotation.y = BABYLON.Scalar.Lerp(drone.rotation.y, targetHeading, rotLerp);
+				}
 				drone.rotation.x = 0;
-				drone.rotation.y = heading;
 				drone.rotation.z = 0;
 			}
 				
@@ -321,155 +390,219 @@ async function startGame() {
 				fe.motion.targetSpeed = Math.max(0, fe.motion.targetSpeed - 12 * dt);
 			}
 
-			// State machine for fire engine modes
+			// State machine for automatic drone firefighting
 			
-			// DRIVING MODE: Moving around
+			// DRIVING MODE: When stopped, automatically detect fire and send drone (once per stop)
 			if (game.mode === "Driving") {
-				// Check if engine is stopped and fist is held for 3 seconds
 				const isStopped = fe.motion.speed === 0;
-				const isFist = game.currentGesture.isFist;
 				
-				if (isStopped && isFist) {
-					// Increment fist hold timer
-					if (!game.fistHoldTimer) game.fistHoldTimer = 0;
-					game.fistHoldTimer += dt;
+				// Track if engine has exceeded 10 mph at least once
+				if (!game.hasExceeded10MPH && fe.motion.speed >= 10) {
+					game.hasExceeded10MPH = true;
+					console.log('🚒 Engine reached 10 MPH - drone firefighting now enabled!');
+				}
+				
+				if (isStopped && !game.hasDispatchedDrone && game.hasExceeded10MPH) {
+					// Look for nearest burning house with active flames in front of the engine
+					const enginePos = fe.motion.position;
+					const engineHeading = fe.root.rotation.y;
+					const engineForward = new BABYLON.Vector3(Math.sin(engineHeading), 0, Math.cos(engineHeading));
 					
-					// Show progress message
-					const remaining = Math.max(0, 3 - game.fistHoldTimer);
-					if (remaining > 0) {
-						hud.msg(`Hold fist for ${remaining.toFixed(1)}s to enter firefight mode...`);
-					}
+					let nearest = null;
+					let nearestDist = Infinity;
 					
-					// After 3 seconds, find nearest burning house and enter STOPPED mode
-					if (game.fistHoldTimer >= 3) {
-						let nearest = null;
-						let nearestDist = Infinity;
-						houses.forEach(h => {
-							if (h.state === "burning") {
-								const dist = BABYLON.Vector3.Distance(fe.motion.position, h.mesh.position);
-								if (dist < nearestDist) {
-									nearestDist = dist;
-									nearest = h;
-								}
+					houses.forEach(h => {
+						if (h.state === "burning" && flames.hasActiveFlames(h)) {
+							const toHouse = h.mesh.position.subtract(enginePos);
+							const dist = toHouse.length();
+							
+							// Check if house is in front of engine (dot product > 0)
+							const dotProduct = BABYLON.Vector3.Dot(toHouse.normalize(), engineForward);
+							
+							// Only consider houses in front (within 120 degree cone) with visible flames
+							if (dotProduct > -0.5 && dist < nearestDist) {
+								nearestDist = dist;
+								nearest = h;
 							}
-						});
-						
-						if (nearest) {
-							game.mode = "Stopped";
-							game.nearestBurningHouse = nearest;
-							game.rotationProgress = 0;
-							game.fistHoldTimer = 0;
-							hud.setMode("Stopped - Rotating");
-							hud.msg("Preparing water cannon...");
-						} else {
-							hud.msg("No fires nearby!");
-							game.fistHoldTimer = 0;
 						}
+					});
+					
+					// If fire with active flames found in front, dispatch drone once
+					if (nearest && drone && droneWater) {
+						game.mode = "FlyingToFire";
+						game.activeHouse = nearest;
+						game.droneTargetPos = nearest.mesh.position.clone();
+						game.droneTargetPos.y = 15; // Hover altitude
+						game.hasDispatchedDrone = true; // Mark as dispatched for this stop
+						
+						// Scale up drone for firefight mode
+						drone.scaling.set(2, 2, 2);
+						
+						hud.setMode("Drone Dispatched");
+						hud.msg("Drone flying to fire...");
+						console.log('🚁 DRONE DISPATCHED TO FIRE (closest in front)');
 					}
-				} else {
-					// Reset timer if not stopped or not holding fist
-					game.fistHoldTimer = 0;
-					if (isStopped) {
-						hud.msg("");
-					}
+				}
+				
+				// Reset dispatch flag when engine starts moving again
+				if (!isStopped && game.hasDispatchedDrone) {
+					game.hasDispatchedDrone = false;
 				}
 			}
 			
-			// STOPPED MODE: Switch to drone water and enter firefight
-			else if (game.mode === "Stopped") {
-				// Immediately enter firefight mode with drone
-				game.mode = "Firefight";
-				game.activeHouse = game.nearestBurningHouse;
-				hud.setMode("Firefight - Drone Control");
-				hud.msg("Move your fist to control the drone. Position it over the fire!");
-				
-				// Switch to drone water system
-				if (droneWater) {
-					water = droneWater;
-					water.setActive(true);
-				}
-				
-				// Initialize drone target position above the fire engine
-				game.droneTargetPos = fe.motion.position.clone();
-				game.droneTargetPos.y = 15; // Start at altitude
-				game.holdOnTarget = 0;
-			}
-			
-			// FIREFIGHT MODE: Control drone with fist position
-			else if (game.mode === "Firefight" && game.activeHouse) {
-				const h = game.activeHouse;
-				
-				// Open hand immediately exits firefight mode
+			// FLYING TO FIRE MODE: Drone slowly flies to burning building
+			else if (game.mode === "FlyingToFire") {
+				// Check for open hand - cancel firefighting immediately
 				if (game.currentGesture.isOpen) {
+					console.log('🚒 OPEN HAND - CANCELLING FIREFIGHT (Flying)');
 					game.mode = "Driving";
-					game.rotationProgress = 0;
 					hud.setMode("Driving");
 					hud.msg("Firefight cancelled - building still burning!");
-					water.setActive(false);
-					water = engineWater; // Switch back to engine water
+					// Scale drone back to normal
+					if (drone) {
+						drone.scaling.set(1, 1, 1);
+					}
 					game.activeHouse = null;
 					game.holdOnTarget = 0;
 					game.droneTargetPos = null;
 					return;
 				}
 				
-				// Control drone position with fist movement
-				if (game.currentGesture.isFist && game.droneTargetPos && drone) {
-					// Map hand position to drone movement
-					// posX: -0.5 (left) to +0.5 (right)
-					// posY: -0.5 (top) to +0.5 (bottom)
-					const moveSpeed = 15; // units per second
-					const dx = -game.currentGesture.posX * moveSpeed * dt; // Flipped X for intuitive control
-					const dz = game.currentGesture.posY * moveSpeed * dt; // Forward/backward
+				if (drone && game.droneTargetPos && game.activeHouse) {
+					// Store previous position to calculate direction
+					const prevPos = drone.position.clone();
 					
-					game.droneTargetPos.x += dx;
-					game.droneTargetPos.z += dz;
-					
-					// Move drone toward target position smoothly
-					const lerpSpeed = 3; // smoothing factor
+					// Move drone toward target position slowly
+					const lerpSpeed = 1.0; // Slower flight speed for dramatic effect
 					const lerp = 1 - Math.exp(-lerpSpeed * dt);
 					drone.position = BABYLON.Vector3.Lerp(drone.position, game.droneTargetPos, lerp);
-				}
-				
-				if (h.state === "burning") {
-					// Check if drone is over the house
-					const isOverHouse = water.isHittingHouse(h);
 					
-					if (isOverHouse) {
-						game.holdOnTarget += dt;
-						
-						// Gradually reduce fire intensity over 5 seconds
-						const progress = Math.min(1, game.holdOnTarget / 5);
-						const fireIntensity = 1 - progress;
-						flames.reduceIntensity(h, fireIntensity);
-						
-						hud.msg(`Extinguishing... ${Math.max(0, (5 - game.holdOnTarget)).toFixed(1)}s (${Math.round(progress * 100)}%)`);
-						
-						if (game.holdOnTarget >= 5) {
-							// Fire extinguished!
-							fire.extinguish(h);
-							game.score += 100;
-							hud.setScore(game.score);
-							hud.msg("Fire out! +100 points.");
-							showStar(scene, fe.root, 10);
-							// Exit firefight mode
-							game.mode = "Driving";
-							game.rotationProgress = 0;
-							hud.setMode("Driving");
-							water.setActive(false);
-							water = engineWater; // Switch back to engine water
-							game.activeHouse = null;
-							game.holdOnTarget = 0;
-							game.droneTargetPos = null;
-						}
-					} else {
-						// Not over house - reset progress and restore full fire intensity
-						if (game.holdOnTarget > 0) {
-							flames.reduceIntensity(h, 1.0);
+					// Rotate drone to face direction of travel (towards fire)
+					const velocity = drone.position.subtract(prevPos);
+					if (velocity.length() > 0.001) { // Only rotate if moving
+						const targetHeading = Math.atan2(velocity.x, velocity.z);
+						// Smoothly interpolate rotation
+						const rotLerp = 1 - Math.exp(-3 * dt);
+						drone.rotation.y = BABYLON.Scalar.Lerp(drone.rotation.y, targetHeading, rotLerp);
+					}
+					drone.rotation.x = 0;
+					drone.rotation.z = 0;
+					
+					// Check if drone has arrived (within 2 units of target)
+					const dist = BABYLON.Vector3.Distance(drone.position, game.droneTargetPos);
+					if (dist < 2.0) {
+						// Arrived! Start extinguishing and begin camera orbit
+						game.mode = "Extinguishing";
+						game.cameraOrbitAngle = 0; // Reset orbit angle to start fresh
+						hud.setMode("Extinguishing Fire");
+						hud.msg("Drone in position - water activated!");
+						// Activate water now that we're in position
+						if (droneWater) {
+							water = droneWater;
+							water.setActive(true);
+							console.log('🚁 DRONE WATER ACTIVATED');
 						}
 						game.holdOnTarget = 0;
 					}
 				}
+			}
+			
+			// EXTINGUISHING MODE: Drone hovers and puts out fire
+			else if (game.mode === "Extinguishing") {
+				// Check for open hand - cancel firefighting immediately
+				if (game.currentGesture.isOpen) {
+					console.log('🚒 OPEN HAND - CANCELLING FIREFIGHT (Extinguishing)');
+					game.mode = "Driving";
+					hud.setMode("Driving");
+					hud.msg("Firefight cancelled - building still burning!");
+					// Turn off water
+					if (water) {
+						water.setActive(false);
+					}
+					water = engineWater;
+					// Scale drone back to normal
+					if (drone) {
+						drone.scaling.set(1, 1, 1);
+					}
+					game.activeHouse = null;
+					game.holdOnTarget = 0;
+					game.droneTargetPos = null;
+					return;
+				}
+				
+				if (game.activeHouse && game.activeHouse.state === "burning" && drone) {
+					const h = game.activeHouse;
+					
+					// Keep drone hovering over target
+					if (game.droneTargetPos) {
+						const lerpSpeed = 5; // Hover stabilization
+						const lerp = 1 - Math.exp(-lerpSpeed * dt);
+						drone.position = BABYLON.Vector3.Lerp(drone.position, game.droneTargetPos, lerp);
+					}
+					
+					// Extinguish fire over 5 seconds
+					game.holdOnTarget += dt;
+					const progress = Math.min(1, game.holdOnTarget / 5);
+					const fireIntensity = 1 - progress;
+					flames.reduceIntensity(h, fireIntensity);
+					
+					hud.msg(`Extinguishing... ${Math.max(0, (5 - game.holdOnTarget)).toFixed(1)}s (${Math.round(progress * 100)}%)`);
+					
+					if (game.holdOnTarget >= 5) {
+						// Fire extinguished!
+						fire.extinguish(h);
+						game.score += 100;
+						hud.setScore(game.score);
+						hud.msg("🎉 Fire out! +100 points");
+						
+						// Mark house as saved - turn green and add permanent rotating star
+						const savedMat = new BABYLON.StandardMaterial(`saved_${h.mesh.id}`, scene);
+						savedMat.diffuseColor = new BABYLON.Color3(0.2, 0.8, 0.2); // Green
+						savedMat.emissiveColor = new BABYLON.Color3(0.1, 0.3, 0.1); // Slight glow
+						h.mesh.material = savedMat;
+						if (h.roof) {
+							const roofMat = new BABYLON.StandardMaterial(`saved_roof_${h.mesh.id}`, scene);
+							roofMat.diffuseColor = new BABYLON.Color3(0.3, 0.7, 0.3);
+							h.roof.material = roofMat;
+						}
+						
+						// Add permanent rotating star on top
+						showStar(scene, h.mesh, Infinity); // Infinity = never remove
+						
+					// Play celebration sound
+					celebrationSound.currentTime = 0;
+					celebrationSound.play().catch(err => console.warn('Audio play failed:', err));
+					
+					// Scale drone back to normal size
+					if (drone) {
+						drone.scaling.set(1, 1, 1);
+					}
+					
+					// Turn off water and return to driving mode
+					water.setActive(false);
+					water = engineWater;
+					game.mode = "Driving";
+					hud.setMode("Driving");
+					game.activeHouse = null;
+					game.holdOnTarget = 0;
+					game.droneTargetPos = null;
+					console.log('🎉 FIRE EXTINGUISHED - RETURNING TO DRIVING MODE');
+					}
+			} else {
+				// House no longer burning or destroyed - return to driving
+				// Scale drone back to normal size
+				if (drone) {
+					drone.scaling.set(1, 1, 1);
+				}
+				
+				water.setActive(false);
+				water = engineWater;
+				game.mode = "Driving";
+				hud.setMode("Driving");
+				game.activeHouse = null;
+				game.holdOnTarget = 0;
+				game.droneTargetPos = null;
+			}
 			}
 		});
 
@@ -484,7 +617,14 @@ async function startGame() {
 		await initHandTracking(video, {
 			onGesture: (g) => {
 				if (!g.present) {
-					// No hand = immediately stop turning and actively brake
+					// In firefight mode, no hand means stay in mode but don't move drone
+					if (game.mode === "Firefight") {
+						handIconEl.textContent = "❓";
+						handLabelEl.textContent = "No hand (Drone paused)";
+						game.currentGesture = { isOpen: false, isFist: false, posX: 0, posY: 0 };
+						return;
+					}
+					// In driving mode, no hand = immediately stop turning and actively brake
 					control.throttle = -1; // Negative throttle for active braking
 					control.steer = 0;     // Stop turning immediately
 					handIconEl.textContent = "✊";
