@@ -322,11 +322,81 @@ async function startGame() {
 			} else {
 				fe.motion.targetSpeed = Math.max(0, Math.min(1, control.throttle)) * maxSpeed;
 			}
-			fe.motion.steer = BABYLON.Scalar.Clamp(control.steer, -1, 1) * fe.motion.maxSteer;
+		fe.motion.steer = BABYLON.Scalar.Clamp(control.steer, -1, 1) * fe.motion.maxSteer;
 
-			fe.update(dt);
+		fe.update(dt);
+		
+		// Collision detection and bouncing with buildings
+		const engineRadius = 3; // Approximate radius of fire engine for collision detection
+		const enginePos = fe.motion.position;
+		
+		for (const house of houses) {
+			if (house.state === "destroyed") continue; // Skip destroyed buildings
 			
-			// Update camera behavior based on mode
+			const buildingPos = house.mesh.position;
+			const bbox = house.mesh.getBoundingInfo().boundingBox;
+			
+			// Get building dimensions
+			const buildingMin = bbox.minimumWorld;
+			const buildingMax = bbox.maximumWorld;
+			
+			// Check collision with building using AABB vs circle (fire engine as circle)
+			// Find closest point on building to engine
+			const closestX = Math.max(buildingMin.x, Math.min(enginePos.x, buildingMax.x));
+			const closestZ = Math.max(buildingMin.z, Math.min(enginePos.z, buildingMax.z));
+			
+			// Calculate distance from engine to closest point
+			const distX = enginePos.x - closestX;
+			const distZ = enginePos.z - closestZ;
+			const distSq = distX * distX + distZ * distZ;
+			
+			// Check if collision occurred
+			if (distSq < engineRadius * engineRadius) {
+				// COLLISION! Calculate bounce
+				const dist = Math.sqrt(distSq);
+				
+				// Normal vector from building to engine (bounce direction)
+				let normalX = distX;
+				let normalZ = distZ;
+				
+				// Handle edge case where engine is exactly at building center
+				if (dist < 0.001) {
+					// Use heading direction as fallback
+					normalX = Math.sin(fe.motion.heading);
+					normalZ = Math.cos(fe.motion.heading);
+				} else {
+					normalX /= dist;
+					normalZ /= dist;
+				}
+				
+				// Push engine out of building
+				const penetration = engineRadius - dist;
+				enginePos.x += normalX * penetration;
+				enginePos.z += normalZ * penetration;
+				fe.motion.position.copyFrom(enginePos);
+				fe.root.position.copyFrom(enginePos);
+				
+				// Calculate bounce velocity (like a football!)
+				const bounceFactor = 0.7; // Keep 70% of speed after bounce
+				const currentVelX = Math.sin(fe.motion.heading) * fe.motion.speed;
+				const currentVelZ = Math.cos(fe.motion.heading) * fe.motion.speed;
+				
+				// Reflect velocity across normal (V' = V - 2(V·N)N)
+				const dotProduct = currentVelX * normalX + currentVelZ * normalZ;
+				const reflectedVelX = currentVelX - 2 * dotProduct * normalX;
+				const reflectedVelZ = currentVelZ - 2 * dotProduct * normalZ;
+				
+				// Apply bounce with damping
+				fe.motion.speed *= bounceFactor;
+				fe.motion.heading = Math.atan2(reflectedVelX, reflectedVelZ);
+				
+				// Add some visual feedback - play brake sound on collision
+				// (Reusing existing brake sound system)
+				break; // Only process one collision per frame
+			}
+		}
+		
+		// Update camera behavior based on mode
 			if (game.mode === "FlyingToFire") {
 				// Camera stays with engine while drone flies to fire
 				const sideViewRotation = 0;
