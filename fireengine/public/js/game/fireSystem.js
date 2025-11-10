@@ -86,6 +86,7 @@ export function createFireSystem(scene, houses, opts = {}) {
 		extinguish,
 		markDestroyed,
 		createWater: (nozzle) => (water = createWaterSystem(scene, nozzle)),
+		createDroneWater: (droneNode) => (water = createDroneWaterSystem(scene, droneNode)),
 		water: () => water,
 		onDestroyed: (cb) => { onDestroyedCb = cb; }
 	};
@@ -163,6 +164,66 @@ function createWaterSystem(scene, nozzle) {
 		setActive,
 		setAngles,
 		isHittingHouse
+	};
+}
+
+// Drone-based water system: vertical shower from drone position
+function createDroneWaterSystem(scene, droneNode) {
+	let active = false;
+	const emitter = new BABYLON.TransformNode("drone_water_emitter", scene);
+	emitter.parent = droneNode;
+	emitter.position = new BABYLON.Vector3(0, -1, 0); // Below drone
+
+	let ps;
+	if (BABYLON.GPUParticleSystem.IsSupported) {
+		ps = new BABYLON.GPUParticleSystem("drone_water_gpu", { capacity: 2000 }, scene);
+	} else {
+		ps = new BABYLON.ParticleSystem("drone_water", 1500, scene);
+	}
+	ps.particleTexture = new BABYLON.Texture("https://assets.babylonjs.com/textures/flare.png", scene);
+	ps.emitter = emitter;
+	ps.minSize = 0.08; ps.maxSize = 0.15;
+	ps.minLifeTime = 0.5; ps.maxLifeTime = 1.0;
+	ps.emitRate = 1500;
+	ps.color1 = new BABYLON.Color4(0.7, 0.8, 1.0, 0.9);
+	ps.color2 = new BABYLON.Color4(0.6, 0.7, 1.0, 0.8);
+	ps.colorDead = new BABYLON.Color4(0.6, 0.7, 1.0, 0.0);
+	ps.gravity = new BABYLON.Vector3(0, -3, 0);
+	ps.minEmitPower = 1; ps.maxEmitPower = 3;
+	ps.updateSpeed = 0.015;
+
+	// Water falls straight down
+	ps.direction1 = new BABYLON.Vector3(-0.3, -1, -0.3);
+	ps.direction2 = new BABYLON.Vector3(0.3, -1, 0.3);
+
+	function setActive(v) {
+		if (v && !active) { ps.start(); }
+		if (!v && active) { ps.stop(); }
+		active = v;
+	}
+
+	// Check if drone is directly over the house (XZ plane proximity)
+	function isOverHouse(house) {
+		const dronePos = droneNode.getAbsolutePosition();
+		const housePos = house.mesh.getAbsolutePosition();
+		
+		// Check XZ distance (horizontal)
+		const dx = dronePos.x - housePos.x;
+		const dz = dronePos.z - housePos.z;
+		const horizontalDist = Math.sqrt(dx * dx + dz * dz);
+		
+		// Check if drone is above the house (Y check)
+		const dy = dronePos.y - housePos.y;
+		
+		// Drone must be above the house and within horizontal range
+		return dy > 3 && dy < 25 && horizontalDist < 4.0;
+	}
+
+	return {
+		setActive,
+		setAngles: () => {}, // No-op for drone (water always falls down)
+		isHittingHouse: isOverHouse, // Renamed for compatibility
+		isOverHouse
 	};
 }
 

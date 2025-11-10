@@ -3,6 +3,36 @@
 // - @mediapipe/hands
 // - @mediapipe/camera_utils
 
+export function loadHandThresholds() {
+	try {
+		const raw = localStorage.getItem('hand.thresholds.v1');
+		if (!raw) return { openCurlThresh: 0.25, fistCurlThresh: 0.15 };
+		const parsed = JSON.parse(raw);
+		const openCurlThresh = Number(parsed.openCurlThresh);
+		const fistCurlThresh = Number(parsed.fistCurlThresh);
+		if (!isFinite(openCurlThresh) || !isFinite(fistCurlThresh)) {
+			return { openCurlThresh: 0.25, fistCurlThresh: 0.15 };
+		}
+		return { openCurlThresh, fistCurlThresh, trainedAt: parsed.trainedAt };
+	} catch (e) {
+		console.warn('Failed to load hand thresholds:', e);
+		return { openCurlThresh: 0.25, fistCurlThresh: 0.15 };
+	}
+}
+
+export function saveHandThresholds(thresholds) {
+	try {
+		const payload = {
+			openCurlThresh: thresholds.openCurlThresh,
+			fistCurlThresh: thresholds.fistCurlThresh,
+			trainedAt: Date.now()
+		};
+		localStorage.setItem('hand.thresholds.v1', JSON.stringify(payload));
+	} catch (e) {
+		console.warn('Failed to save hand thresholds:', e);
+	}
+}
+
 export async function initHandTracking(videoEl, { onGesture } = {}) {
 	const hands = new window.Hands({
 		locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
@@ -17,6 +47,9 @@ export async function initHandTracking(videoEl, { onGesture } = {}) {
 	let prevCentroid = null;
 	let smoothedDx = 0, smoothedDy = 0;
 	let state = { isOpen: false, isFist: false };
+	const thresholds = loadHandThresholds();
+	const openCurlThresh = thresholds.openCurlThresh ?? 0.25;
+	const fistCurlThresh = thresholds.fistCurlThresh ?? 0.15;
 
 	hands.onResults((results) => {
 		const lm = results.multiHandLandmarks && results.multiHandLandmarks[0];
@@ -59,9 +92,8 @@ export async function initHandTracking(videoEl, { onGesture } = {}) {
 		const curlScore = avgCurl / handSize;
 		
 		// Thresholds: when fingers are curled close to knuckles, curlScore is LOW
-		const openCurlThresh = 0.25;  // Above this = open hand
-		const fistCurlThresh = 0.15;  // Below this = fist
-		
+		// Using calibrated thresholds loaded from localStorage
+		//
 		// Detect gesture
 		if (curlScore >= openCurlThresh) {
 			state.isOpen = true; 
@@ -102,6 +134,7 @@ export async function initHandTracking(videoEl, { onGesture } = {}) {
 				present: true,
 				isOpen: state.isOpen,
 				isFist: state.isFist,
+				curlScore,
 				dx: smoothedDx,
 				dy: smoothedDy,
 				centroid: { x: cx, y: cy },
@@ -114,6 +147,8 @@ export async function initHandTracking(videoEl, { onGesture } = {}) {
 
 	const camera = new window.Camera(videoEl, {
 		onFrame: async () => {
+			// Guard against teardown race conditions
+			if (!hands) return;
 			await hands.send({ image: videoEl });
 		},
 		width: 640, height: 480
@@ -176,6 +211,146 @@ function bounds(points) {
 		if (p.y > maxY) maxY = p.y;
 	}
 	return { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
+}
+
+export function startHandTraining(videoEl, ui = {}) {
+	const {
+		onStatus = () => {},
+		onCountdown = () => {},
+		onProgress = () => {}
+	} = ui;
+
+	let hands = new window.Hands({
+		locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+	});
+	hands.setOptions({
+		maxNumHands: 1,
+		modelComplexity: 1,
+		minDetectionConfidence: 0.6,
+		minTrackingConfidence: 0.6
+	});
+
+	let camera = new window.Camera(videoEl, {
+		onFrame: async () => {
+			// Guard against teardown race conditions during training
+			if (!active || !hands) return;
+			await hands.send({ image: videoEl });
+		},
+		width: 640, height: 480
+	});
+
+	let active = true;
+	const cleanup = () => {
+		try { camera.stop && camera.stop(); } catch (e) {}
+		try { hands.close && hands.close(); } catch (e) {}
+		hands = null;
+		camera = null;
+	};
+
+	const DEFAULTS = { openCurlThresh: 0.25, fistCurlThresh: 0.15 };
+	let phase = 'closed'; // 'closed' -> 'open'
+	let phaseStart = performance.now();
+	const phaseMs = 10000;
+	let closedSum = 0, closedCount = 0;
+	let openSum = 0, openCount = 0;
+
+	onStatus('Make a tight fist and hold still for 10 seconds…');
+	onCountdown(10);
+	onProgress(0);
+
+	hands.onResults((results) => {
+		if (!active) return;
+		const now = performance.now();
+		const elapsed = now - phaseStart;
+		const overallProgress = Math.min(1, (elapsed + (phase === 'open' ? phaseMs : 0)) / (phaseMs * 2));
+		onProgress(overallProgress);
+
+		const lm = results.multiHandLandmarks && results.multiHandLandmarks[0];
+		if (lm) {
+			const fingerPairs = [
+				{ tip: lm[8], knuckle: lm[5] },
+				{ tip: lm[12], knuckle: lm[9] },
+				{ tip: lm[16], knuckle: lm[13] },
+				{ tip: lm[20], knuckle: lm[17] }
+			];
+			const curlDistances = fingerPairs.map(pair => 
+				Math.hypot(pair.tip.x - pair.knuckle.x, pair.tip.y - pair.knuckle.y)
+			);
+			const avgCurl = curlDistances.reduce((a, b) => a + b, 0) / curlDistances.length;
+			const bbox = bounds(lm);
+			const handSize = Math.hypot(bbox.w, bbox.h) + 1e-6;
+			const curlScore = avgCurl / handSize;
+
+			if (phase === 'closed') {
+				closedSum += curlScore;
+				closedCount++;
+			} else {
+				openSum += curlScore;
+				openCount++;
+			}
+		}
+
+		const secLeft = Math.max(0, Math.ceil((phaseMs - (elapsed)) / 1000));
+		onCountdown(secLeft);
+
+		if (elapsed >= phaseMs) {
+			if (phase === 'closed') {
+				phase = 'open';
+				phaseStart = performance.now();
+				onStatus('Open your hand fully and hold for 10 seconds…');
+				onCountdown(10);
+			} else {
+				// Done
+				active = false;
+				const closedAvg = closedCount > 0 ? (closedSum / closedCount) : NaN;
+				const openAvg = openCount > 0 ? (openSum / openCount) : NaN;
+				let fistCurlThresh, openCurlThresh;
+				if (!isFinite(closedAvg) || !isFinite(openAvg) || !(openAvg > closedAvg)) {
+					console.warn('Training produced insufficient separation; using defaults.');
+					fistCurlThresh = DEFAULTS.fistCurlThresh;
+					openCurlThresh = DEFAULTS.openCurlThresh;
+				} else {
+					const gap = openAvg - closedAvg;
+					fistCurlThresh = closedAvg + 0.2 * gap;
+					openCurlThresh = closedAvg + 0.6 * gap;
+					if (openCurlThresh - fistCurlThresh < 0.02) {
+						const widen = 0.02 - (openCurlThresh - fistCurlThresh);
+						openCurlThresh += widen / 2;
+						fistCurlThresh -= widen / 2;
+					}
+					// Clamp to reasonable ranges
+					fistCurlThresh = Math.max(0.05, Math.min(0.6, fistCurlThresh));
+					openCurlThresh = Math.max(fistCurlThresh + 0.02, Math.min(0.8, openCurlThresh));
+				}
+				cleanup();
+				resolvePromise({ fistCurlThresh, openCurlThresh });
+			}
+		}
+	});
+
+	let resolvePromise, rejectPromise;
+	const promise = new Promise((resolve, reject) => {
+		resolvePromise = resolve;
+		rejectPromise = reject;
+	});
+
+	// Start the camera
+	try {
+		camera.start();
+	} catch (e) {
+		cleanup();
+		rejectPromise(e);
+	}
+
+	return {
+		promise,
+		cancel: () => {
+			if (!active) return;
+			active = false;
+			cleanup();
+			rejectPromise(new Error('Training cancelled'));
+		}
+	};
 }
 
 

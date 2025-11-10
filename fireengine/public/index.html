@@ -33,10 +33,42 @@
 			                                    transition: transform 0.2s;">
 				🎮 Start Game & Allow Camera
 			</button>
+			<button id="trainHandBtn" style="background: #2196F3; color: white; border: none; 
+			                                    padding: 14px 28px; font-size: 16px; font-weight: bold; 
+			                                    border-radius: 50px; cursor: pointer; 
+			                                    box-shadow: 0 4px 15px rgba(33,150,243,0.4);
+			                                    transition: transform 0.2s; margin-left: 12px;">
+				🖐️ Train New Hand
+			</button>
 			<p id="permissionHelp" style="color: #999; font-size: 13px; margin-top: 20px; display: none;">
 				<strong>Need help allowing camera?</strong><br>
 				<span id="browserHelp"></span>
 			</p>
+		</div>
+	</div>
+
+	<!-- Hand Training Overlay -->
+	<div id="handTrainingOverlay" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+	                                     background: rgba(0,0,0,0.6); display: none; align-items: center; justify-content: center; 
+	                                     z-index: 1100;">
+		<div style="background: rgba(255,255,255,0.97); padding: 40px; border-radius: 16px; 
+		            max-width: 580px; width: 90%; text-align: center; box-shadow: 0 20px 60px rgba(0,0,0,0.35);">
+			<h2 style="color: #333; margin-bottom: 10px;">Hand Training</h2>
+			<p id="handTrainingText" style="color: #555; font-size: 16px; margin-top: 0; margin-bottom: 16px;">
+				Hold your hand in front of the camera.
+			</p>
+			<div style="font-size: 52px; font-weight: 700; color: #222; margin: 8px 0 12px 0;" id="handTrainingCountdown">10</div>
+			<div style="height: 10px; background: #eee; border-radius: 8px; overflow: hidden; margin: 8px 0 20px 0;">
+				<div id="handTrainingProgress" style="height: 100%; width: 0%; background: linear-gradient(90deg,#2196F3,#4CAF50);"></div>
+			</div>
+			<div style="display: flex; gap: 10px; justify-content: center;">
+				<button id="handTrainingCancel" style="background: #999; color: white; border: none; 
+				                                     padding: 10px 18px; font-size: 14px; font-weight: bold; 
+				                                     border-radius: 8px; cursor: pointer;">
+					Cancel
+				</button>
+			</div>
+			<p style="color: #777; font-size: 12px; margin-top: 16px;">Tip: Keep your hand inside the camera view for best results.</p>
 		</div>
 	</div>
 
