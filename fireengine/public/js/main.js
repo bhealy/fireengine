@@ -299,10 +299,12 @@ async function startGame() {
 				// Camera orbits around the building during extinguishing
 				if (game.activeHouse && drone) {
 					const buildingPos = game.activeHouse.mesh.position;
+					const bbox = game.activeHouse.mesh.getBoundingInfo().boundingBox;
+					const buildingHeight = bbox.maximumWorld.y - bbox.minimumWorld.y;
 					
-					// Orbit parameters
-					const orbitRadius = 20; // Distance from building
-					const orbitHeight = 12; // Height above building
+					// Orbit parameters - scale based on building size
+					const orbitRadius = Math.max(35, buildingHeight * 1.5); // Further away, scales with building
+					const orbitHeight = buildingHeight * 0.8; // Height relative to building
 					const orbitSpeed = 0.3; // Radians per second (slow orbit)
 					
 					// Increment orbit angle
@@ -319,8 +321,9 @@ async function startGame() {
 					const camLerp = 1 - Math.exp(-3 * dt);
 					cam.position = BABYLON.Vector3.Lerp(cam.position, orbitPos, camLerp);
 					
-					// Always look at the building center (slightly elevated to see drone above)
-					const lookAtPos = buildingPos.add(new BABYLON.Vector3(0, 8, 0));
+					// Look at point between building center and drone
+					const dronePos = drone.position;
+					const lookAtPos = BABYLON.Vector3.Lerp(buildingPos, dronePos, 0.5);
 					cam.setTarget(lookAtPos);
 				}
 			} else {
@@ -432,7 +435,12 @@ async function startGame() {
 						game.mode = "FlyingToFire";
 						game.activeHouse = nearest;
 						game.droneTargetPos = nearest.mesh.position.clone();
-						game.droneTargetPos.y = 15; // Hover altitude
+						
+						// Calculate hover altitude based on building height
+						const bbox = nearest.mesh.getBoundingInfo().boundingBox;
+						const buildingHeight = bbox.maximumWorld.y - bbox.minimumWorld.y;
+						game.droneTargetPos.y = bbox.maximumWorld.y + Math.max(5, buildingHeight * 0.5); // Above roof
+						
 						game.hasDispatchedDrone = true; // Mark as dispatched for this stop
 						
 						// Scale up drone for firefight mode
@@ -440,7 +448,7 @@ async function startGame() {
 						
 						hud.setMode("Drone Dispatched");
 						hud.msg("Drone flying to fire...");
-						console.log('🚁 DRONE DISPATCHED TO FIRE (closest in front)');
+						console.log('🚁 DRONE DISPATCHED TO FIRE (closest in front)', 'altitude:', game.droneTargetPos.y);
 					}
 				}
 				
