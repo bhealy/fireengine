@@ -48,20 +48,27 @@
 			</div>
 		</div>
 		
-		<button id="startGameBtn" style="background: #ff4444; color: white; border: none;
-			                                    padding: 18px 40px; font-size: 20px; font-weight: bold; 
-			                                    border-radius: 50px; cursor: pointer; 
-			                                    box-shadow: 0 4px 15px rgba(255,68,68,0.4);
-			                                    transition: transform 0.2s;">
-				🎮 Start Game & Allow Camera
-			</button>
-			<button id="trainHandBtn" style="background: #2196F3; color: white; border: none; 
-			                                    padding: 14px 28px; font-size: 16px; font-weight: bold; 
-			                                    border-radius: 50px; cursor: pointer; 
-			                                    box-shadow: 0 4px 15px rgba(33,150,243,0.4);
-			                                    transition: transform 0.2s; margin-left: 12px;">
-				🖐️ Train New Hand
-			</button>
+		<button id="startGameBtn" style="background: #ff4444; color: white; border: none; 
+		                                    padding: 18px 40px; font-size: 20px; font-weight: bold; 
+		                                    border-radius: 50px; cursor: pointer; 
+		                                    box-shadow: 0 4px 15px rgba(255,68,68,0.4);
+		                                    transition: transform 0.2s;">
+			🎮 Start Game & Allow Camera
+		</button>
+		<button id="trainHandBtn" style="background: #2196F3; color: white; border: none; 
+		                                    padding: 14px 28px; font-size: 16px; font-weight: bold; 
+		                                    border-radius: 50px; cursor: pointer; 
+		                                    box-shadow: 0 4px 15px rgba(33,150,243,0.4);
+		                                    transition: transform 0.2s; margin-left: 12px;">
+			🖐️ Train New Hand
+		</button>
+		<button id="instructionsBtn" style="background: #4CAF50; color: white; border: none; 
+		                                    padding: 14px 28px; font-size: 16px; font-weight: bold; 
+		                                    border-radius: 50px; cursor: pointer; 
+		                                    box-shadow: 0 4px 15px rgba(76,175,80,0.4);
+		                                    transition: transform 0.2s; margin-left: 12px;">
+			📖 How to Play
+		</button>
 			<p id="permissionHelp" style="color: #999; font-size: 13px; margin-top: 20px; display: none;">
 				<strong>Need help allowing camera?</strong><br>
 				<span id="browserHelp"></span>
@@ -91,6 +98,84 @@
 				</button>
 			</div>
 			<p style="color: #777; font-size: 12px; margin-top: 16px;">Tip: Keep your hand inside the camera view for best results.</p>
+		</div>
+	</div>
+
+	<!-- Instructions Overlay -->
+	<div id="instructionsOverlay" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+	                                     background: rgba(0,0,0,0.6); display: none; align-items: center; justify-content: center; 
+	                                     z-index: 1100; overflow-y: auto; padding: 20px;">
+		<div style="background: rgba(255,255,255,0.97); padding: 40px; border-radius: 16px; 
+		            max-width: 700px; width: 90%; text-align: left; box-shadow: 0 20px 60px rgba(0,0,0,0.35);
+		            max-height: 90vh; overflow-y: auto;">
+			<h2 style="color: #333; margin-bottom: 20px; text-align: center;">🎮 How to Play Rory's Fire Brigade</h2>
+			
+			<div style="margin-bottom: 20px;">
+				<h3 style="color: #ff4444; margin-bottom: 10px; font-size: 18px;">🎯 Objective</h3>
+				<p style="color: #555; line-height: 1.6; margin: 0;">
+					Drive your fire engine through the city and extinguish burning buildings using your autonomous drone. 
+					Save as many buildings as possible to earn points!
+				</p>
+			</div>
+
+			<div style="margin-bottom: 20px;">
+				<h3 style="color: #ff4444; margin-bottom: 10px; font-size: 18px;">✋ Hand Gesture Controls</h3>
+				<div style="background: #f0f0f0; padding: 15px; border-radius: 8px;">
+					<p style="margin: 8px 0; color: #333;"><strong>✋ Open Hand</strong> → Accelerate forward</p>
+					<p style="margin: 8px 0; color: #333;"><strong>✊ Closed Fist</strong> → Stop/Coast</p>
+					<p style="margin: 8px 0; color: #333;"><strong>👈 Hand Left</strong> → Turn left</p>
+					<p style="margin: 8px 0; color: #333;"><strong>👉 Hand Right</strong> → Turn right</p>
+					<p style="margin: 8px 0; color: #333;"><strong>🚫 No Hand</strong> → Emergency brake</p>
+				</div>
+				<p style="color: #666; font-size: 14px; margin-top: 8px; font-style: italic;">
+					💡 Tip: Keep your hand centered to drive straight. The engine automatically slows down when turning.
+				</p>
+			</div>
+
+			<div style="margin-bottom: 20px;">
+				<h3 style="color: #ff4444; margin-bottom: 10px; font-size: 18px;">🚁 Drone Firefighting</h3>
+				<ol style="color: #555; line-height: 1.8; padding-left: 20px;">
+					<li>Drive until you reach <strong>10 mph</strong> to enable the drone</li>
+					<li>When you <strong>stop near a fire</strong>, the drone automatically dispatches</li>
+					<li>The drone flies to the building and hovers above it</li>
+					<li>Water activates automatically - watch the fire extinguish over 5 seconds</li>
+					<li>Hold your hand as <strong>open palm</strong> to cancel the firefighting mission</li>
+					<li>After saving a building, it turns <strong>green with a star</strong> ⭐</li>
+				</ol>
+				<p style="color: #666; font-size: 14px; margin-top: 8px; font-style: italic;">
+					💡 Tip: Stop in front of burning buildings to send your drone. The drone will target the closest fire ahead of you.
+				</p>
+			</div>
+
+			<div style="margin-bottom: 20px;">
+				<h3 style="color: #ff4444; margin-bottom: 10px; font-size: 18px;">🏆 Scoring</h3>
+				<div style="background: #e8f5e9; padding: 15px; border-radius: 8px; margin-bottom: 8px;">
+					<p style="margin: 0; color: #2e7d32;"><strong>+100 points</strong> → Successfully extinguish a fire 🎉</p>
+				</div>
+				<div style="background: #ffebee; padding: 15px; border-radius: 8px;">
+					<p style="margin: 0; color: #c62828;"><strong>-50 points</strong> → Building burns down completely 💔</p>
+				</div>
+			</div>
+
+			<div style="margin-bottom: 20px;">
+				<h3 style="color: #ff4444; margin-bottom: 10px; font-size: 18px;">⚠️ Important Notes</h3>
+				<ul style="color: #555; line-height: 1.8; padding-left: 20px;">
+					<li>Stay on roads - driving off-road slows you down significantly</li>
+					<li>Watch your speedometer - siren activates above 10 mph</li>
+					<li>Bounce off buildings if you hit them (drive carefully!)</li>
+					<li>Buildings will burn down if you don't save them in time</li>
+					<li>Click on any building to start a fire (for practice)</li>
+				</ul>
+			</div>
+
+			<div style="text-align: center; margin-top: 30px;">
+				<button id="instructionsClose" style="background: #4CAF50; color: white; border: none; 
+				                                     padding: 14px 32px; font-size: 16px; font-weight: bold; 
+				                                     border-radius: 8px; cursor: pointer;
+				                                     box-shadow: 0 4px 12px rgba(76,175,80,0.4);">
+					Got It! Let's Play 🚒
+				</button>
+			</div>
 		</div>
 	</div>
 

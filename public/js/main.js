@@ -56,6 +56,32 @@ if (trainBtn) {
 	trainBtn.addEventListener("click", beginHandTraining);
 }
 
+// Instructions button wiring
+const instructionsBtn = document.getElementById("instructionsBtn");
+const instructionsOverlay = document.getElementById("instructionsOverlay");
+const instructionsClose = document.getElementById("instructionsClose");
+
+if (instructionsBtn && instructionsOverlay && instructionsClose) {
+	instructionsBtn.addEventListener("mouseenter", () => {
+		instructionsBtn.style.transform = "scale(1.05)";
+	});
+	instructionsBtn.addEventListener("mouseleave", () => {
+		instructionsBtn.style.transform = "scale(1)";
+	});
+	instructionsBtn.addEventListener("click", () => {
+		instructionsOverlay.style.display = "flex";
+	});
+	instructionsClose.addEventListener("click", () => {
+		instructionsOverlay.style.display = "none";
+	});
+	// Also close when clicking the overlay background
+	instructionsOverlay.addEventListener("click", (e) => {
+		if (e.target === instructionsOverlay) {
+			instructionsOverlay.style.display = "none";
+		}
+	});
+}
+
 function beginHandTraining() {
 	const overlay = document.getElementById("handTrainingOverlay");
 	const textEl = document.getElementById("handTrainingText");
